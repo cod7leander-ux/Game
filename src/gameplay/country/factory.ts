@@ -4,6 +4,7 @@ import { GOVERNMENTS } from '../../data/governments';
 import { PERSONALITIES, PERSONALITY_IDS } from '../../data/personalities';
 import { UNIT_LIST, getUnit } from '../../data/units';
 import type { AIPersonalityId } from '../ai/types';
+import { createArmy } from '../military/armies';
 import { createEmptyResources } from '../economy/types';
 import type { CountryDefinition, CountryState } from './types';
 
@@ -115,6 +116,7 @@ export const createCountryState = (
       availableManpower: manpowerPool(population),
     },
     military: {
+      armies: [createArmy(definition.id, 1, definition.id, formations, options.day)],
       formations,
       queue: [],
       readiness: 0.74,
@@ -144,6 +146,7 @@ export const createCountryState = (
       ambition: Math.min(1, Math.pow(gdp / 5_000_000, 0.35)),
       lastRationale: 'initial posture',
     },
+    occupierId: null,
     modifiers: { production: 0, income: 0, research: 0, attack: 0, defence: 0 },
     lastAttackedDay: 0,
   };

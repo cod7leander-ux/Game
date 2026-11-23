@@ -42,6 +42,51 @@ export interface DiplomacyView {
   atWar: boolean;
   ally: boolean;
   trade: boolean;
+  neighbour: boolean;
+  canDeclareWar: boolean;
+  canMakePeace: boolean;
+}
+
+export interface ArmyUnitView {
+  unitId: string;
+  name: string;
+  count: number;
+}
+
+export interface ArmyTargetView {
+  id: string;
+  name: string;
+  atWar: boolean;
+  ally: boolean;
+  occupiedByUs: boolean;
+}
+
+export interface ArmyMovementView {
+  toId: string;
+  toName: string;
+  daysRemaining: number;
+  totalDays: number;
+  progress: number;
+}
+
+export interface ArmyView {
+  id: string;
+  ordinal: number;
+  locationId: string;
+  locationName: string;
+  composition: ArmyUnitView[];
+  units: number;
+  strength: number;
+  movement: ArmyMovementView | null;
+  targets: ArmyTargetView[];
+}
+
+/** Lightweight marker consumed by the 3D army layer. */
+export interface ArmyMarkerView {
+  id: string;
+  lon: number;
+  lat: number;
+  tone: 'player' | 'enemy' | 'ally';
 }
 
 export interface ResearchView {
@@ -87,7 +132,10 @@ export interface PlayerSnapshot {
     researchOutput: number;
     taxRate: number;
     armyFormations: number;
+    occupierName: string | null;
   };
+  armies: ArmyView[];
+  mapArmies: ArmyMarkerView[];
   resources: ResourceView[];
   research: ResearchView;
   military: {

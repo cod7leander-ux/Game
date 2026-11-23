@@ -19,6 +19,7 @@ export function App() {
   const selectedCountryId = useAppStore((state) => state.selectedCountryId);
   const hoveredCountryId = useAppStore((state) => state.hoveredCountryId);
   const session = useAppStore((state) => state.session);
+  const mapArmies = useAppStore((state) => state.snapshot?.mapArmies);
   const locale = useSettingsStore((state) => state.locale);
   const languageChosen = useSettingsStore((state) => state.languageChosen);
   const { t: tr } = useI18n();
@@ -64,6 +65,7 @@ export function App() {
         interactive={phase !== 'menu'}
         autoRotate={phase === 'menu' ? 0.035 : 0}
         labels={labels}
+        armies={phase === 'game' ? mapArmies : undefined}
       />
       <div className="app-shell__screens">
         {!languageChosen && <LanguageGate />}

@@ -9,9 +9,50 @@ import { CURRENT_SAVE_VERSION, type SaveFile } from './types';
  */
 export type Migration = (file: Record<string, unknown>) => Record<string, unknown>;
 
+type LegacyCountry = {
+  id?: string;
+  occupierId?: string | null;
+  military?: {
+    armies?: unknown[];
+    formations?: Record<string, number>;
+    manpowerCommitted?: number;
+  };
+};
+
 export const MIGRATIONS: Record<number, Migration> = {
-  // Example for the next schema change:
-  // 1: (file) => ({ ...file, version: 2, meta: { ...(file.meta as object), difficulty: 'standard' } }),
+  /**
+   * v1 stored armies only as aggregate formation counts. v2 introduces mobile
+   * armies, so each country receives one army at its capital holding its
+   * existing formations, plus an explicit occupation field.
+   */
+  1: (file) => {
+    const world = (file.world ?? {}) as { day?: number; countries?: LegacyCountry[] };
+    const day = Number(world.day ?? 1);
+    const countries = (world.countries ?? []).map((country) => {
+      const formations = country.military?.formations ?? {};
+      const existing = country.military?.armies;
+      const armies =
+        Array.isArray(existing) && existing.length > 0
+          ? existing
+          : [
+              {
+                id: `${country.id}-A1`,
+                ordinal: 1,
+                locationId: country.id,
+                composition: { ...formations },
+                movement: null,
+                createdDay: day,
+                battlesWon: 0,
+              },
+            ];
+      return {
+        ...country,
+        occupierId: country.occupierId ?? null,
+        military: { ...country.military, armies },
+      };
+    });
+    return { ...file, version: 2, world: { ...world, countries } };
+  },
 };
 
 export class SaveVersionError extends Error {

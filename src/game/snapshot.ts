@@ -11,11 +11,15 @@ import type { LocaleCode } from '../i18n/types';
 import type { MessageKey } from '../i18n/locales/en';
 import type { GameSpeed } from '../core/config';
 import { getRelation, statusWith } from '../gameplay/diplomacy/DiplomacySystem';
+import { areAllied, areAtWar, canEnterTerritory } from '../gameplay/diplomacy/helpers';
 import { researchOutput } from '../gameplay/research/ResearchSystem';
 import { dailyUpkeep } from '../gameplay/military/upkeep';
+import { armyPower, armyUnits } from '../gameplay/military/armies';
 import type { World } from '../gameplay/World';
 import type { NotificationEntry, CountryState } from '../gameplay/country/types';
 import type {
+  ArmyMarkerView,
+  ArmyView,
   CountryBrief,
   DiplomacyView,
   FormationView,
@@ -112,6 +116,9 @@ const buildDiplomacyViews = (country: CountryState, locale: LocaleCode): Diploma
       atWar: relation.atWar,
       ally: relation.ally,
       trade: relation.tradePartner,
+      neighbour: true,
+      canDeclareWar: !relation.atWar && !relation.ally,
+      canMakePeace: relation.atWar,
     });
   }
   return views.sort((a, b) => {
@@ -121,9 +128,107 @@ const buildDiplomacyViews = (country: CountryState, locale: LocaleCode): Diploma
   });
 };
 
+const buildArmyViews = (
+  world: World,
+  country: CountryState,
+  locale: LocaleCode,
+): ArmyView[] => {
+  const views: ArmyView[] = [];
+  for (const army of country.military.armies) {
+    const location = COUNTRY_BY_ID[army.locationId];
+    const destination = army.movement ? COUNTRY_BY_ID[army.movement.to] : undefined;
+    const targets: ArmyView['targets'] = army.movement
+      ? []
+      : world
+          .neighboursOf(army.locationId)
+          .map((id) => world.get(id))
+          .filter((entry): entry is CountryState => Boolean(entry))
+          .filter((entry) => canEnterTerritory(country, entry))
+          .map((entry) => {
+            const definition = COUNTRY_BY_ID[entry.id];
+            return {
+              id: entry.id,
+              name: definition ? localize(definition.name, locale) : entry.id,
+              atWar: areAtWar(country, entry),
+              ally: areAllied(country, entry),
+              occupiedByUs: entry.occupierId === country.id,
+            };
+          })
+          .sort((a, b) => Number(b.atWar) - Number(a.atWar) || a.name.localeCompare(b.name));
+
+    views.push({
+      id: army.id,
+      ordinal: army.ordinal,
+      locationId: army.locationId,
+      locationName: location ? localize(location.name, locale) : army.locationId,
+      composition: Object.entries(army.composition)
+        .filter(([, count]) => count > 0)
+        .map(([unitId, count]) => {
+          const unit = getUnit(unitId);
+          return {
+            unitId,
+            name: unit ? localize(unit.name, locale) : unitId,
+            count,
+          };
+        })
+        .sort((a, b) => b.count - a.count),
+      units: armyUnits(army),
+      strength: Math.round(armyPower(army, country)),
+      movement:
+        army.movement && destination
+          ? {
+              toId: army.movement.to,
+              toName: localize(destination.name, locale),
+              daysRemaining: Math.max(1, Math.ceil(army.movement.daysRemaining)),
+              totalDays: army.movement.totalDays,
+              progress: Math.min(
+                1,
+                Math.max(
+                  0,
+                  1 - army.movement.daysRemaining / Math.max(1, army.movement.totalDays),
+                ),
+              ),
+            }
+          : null,
+      targets,
+    });
+  }
+  return views.sort((a, b) => a.ordinal - b.ordinal);
+};
+
+/** Player armies and those of powers at war with the player, as 3D markers. */
+const buildArmyMarkers = (world: World, playerId: string): ArmyMarkerView[] => {
+  const player = world.get(playerId);
+  if (!player) return [];
+  const markers: ArmyMarkerView[] = [];
+  for (const country of world.countries.values()) {
+    const own = country.id === playerId;
+    if (!own && !areAtWar(player, country)) continue;
+    const definition = COUNTRY_BY_ID[country.id];
+    if (!definition) continue;
+    for (const army of country.military.armies) {
+      markers.push({
+        id: army.id,
+        lon: definition.label[0],
+        lat: definition.label[1],
+        tone: own ? 'player' : 'enemy',
+      });
+    }
+  }
+  return markers;
+};
+
 const buildWarnings = (country: CountryState, locale: LocaleCode): string[] => {
   const warnings: string[] = [];
   const resources = country.economy.resources;
+  if (country.occupierId) {
+    const occupier = COUNTRY_BY_ID[country.occupierId];
+    warnings.push(
+      translate(locale, 'overview.occupied', {
+        country: occupier ? localize(occupier.name, locale) : country.occupierId,
+      }),
+    );
+  }
   if (resources.money < 0) warnings.push(translate(locale, 'notify.lowTreasury'));
   if (resources.food <= 0) warnings.push(translate(locale, 'economy.resources'));
   if (resources.oil <= 0) warnings.push(translate(locale, 'military.readiness'));
@@ -178,7 +283,15 @@ export const buildPlayerSnapshot = (input: SnapshotInput): PlayerSnapshot | null
       researchOutput: output,
       taxRate: country.economy.taxRate,
       armyFormations: Object.values(country.military.formations).reduce((total, n) => total + n, 0),
+      occupierName: country.occupierId
+        ? (() => {
+            const occupier = COUNTRY_BY_ID[country.occupierId];
+            return occupier ? localize(occupier.name, locale) : country.occupierId;
+          })()
+        : null,
     },
+    armies: buildArmyViews(input.world, country, locale),
+    mapArmies: buildArmyMarkers(input.world, country.id),
     resources: buildResourceViews(country, locale),
     research: {
       activeId: country.research.activeTechId,

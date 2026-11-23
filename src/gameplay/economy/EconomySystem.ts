@@ -90,9 +90,11 @@ export class EconomySystem {
 
     // Stability drifts toward the government baseline, punished by debt.
     const solvency = resources.money < 0 ? -0.012 : net < 0 ? -0.001 : 0.0008;
+    // Occupation suppresses national morale until the territory is freed.
+    const occupation = country.occupierId ? -0.004 : 0;
     const target = government.stability;
     country.stability = clamp01(
-      country.stability + (target - country.stability) * 0.004 + solvency,
+      country.stability + (target - country.stability) * 0.004 + solvency + occupation,
     );
 
     // Manpower replenishment toward the pool ceiling.

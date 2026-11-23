@@ -18,6 +18,8 @@ export function DiplomacyPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
   const { t: tr, n, signed } = useI18n();
   const selectCountry = useAppStore((state) => state.selectCountry);
   const focusCountryCamera = useAppStore((state) => state.focusCountryCamera);
+  const declareWar = useAppStore((state) => state.declareWar);
+  const makePeace = useAppStore((state) => state.makePeace);
   const wars = snapshot.diplomacy.filter((entry) => entry.atWar);
   const allies = snapshot.diplomacy.filter((entry) => entry.ally);
   const trade = snapshot.diplomacy.filter((entry) => entry.trade);
@@ -61,35 +63,36 @@ export function DiplomacyPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
         {snapshot.diplomacy.map((entry) => {
           const width = Math.max(2, Math.min(100, (entry.value + 100) / 2));
           return (
-            <button
-              key={entry.id}
-              type="button"
-              className={`diplomacy-row status-${entry.status}`}
-              onClick={() => inspect(entry)}
-            >
-              <Flag iso2={entry.iso2} seed={entry.id} size={22} title={entry.name} />
-              <span className="diplomacy-row__name">{entry.name}</span>
-              <span className={`chip chip--status status-${entry.status}`}>
-                {tr(STATUS_KEY[entry.status])}
-              </span>
-              <span className="diplomacy-row__meter">
-                <span style={{ width: `${width}%` }} />
-              </span>
-              <span className={`diplomacy-row__value ${entry.value >= 0 ? 'is-positive' : 'is-negative'}`}>
-                {signed(entry.value)}
-              </span>
-            </button>
+            <div key={entry.id} className={`diplomacy-row status-${entry.status}`}>
+              <button type="button" className="diplomacy-row__main" onClick={() => inspect(entry)}>
+                <Flag iso2={entry.iso2} seed={entry.id} size={22} title={entry.name} />
+                <span className="diplomacy-row__name">{entry.name}</span>
+                <span className={`chip chip--status status-${entry.status}`}>
+                  {tr(STATUS_KEY[entry.status])}
+                </span>
+                <span className="diplomacy-row__meter">
+                  <span style={{ width: `${width}%` }} />
+                </span>
+                <span className={`diplomacy-row__value ${entry.value >= 0 ? 'is-positive' : 'is-negative'}`}>
+                  {signed(entry.value)}
+                </span>
+              </button>
+              {(entry.canMakePeace || entry.canDeclareWar) && (
+                <button
+                  type="button"
+                  className={`btn btn--small ${entry.canMakePeace ? '' : 'btn--danger'}`}
+                  onClick={() => (entry.canMakePeace ? makePeace(entry.id) : declareWar(entry.id))}
+                >
+                  {tr(entry.canMakePeace ? 'diplomacy.action.peace' : 'diplomacy.action.war')}
+                </button>
+              )}
+            </div>
           );
         })}
         {snapshot.diplomacy.length === 0 && <p className="muted">{tr('diplomacy.noRelations')}</p>}
       </div>
 
-      <div className="locked-note">
-        <span className="locked-note__glyph" aria-hidden="true">
-          ⚿
-        </span>
-        {tr('diplomacy.actionsLocked')}
-      </div>
+
     </div>
   );
 }

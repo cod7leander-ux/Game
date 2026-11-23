@@ -56,6 +56,8 @@ export interface CountryState {
   research: ResearchState;
   diplomacy: DiplomacyState;
   ai: AIState;
+  /** Country currently occupying this territory, if any. */
+  occupierId: string | null;
   /** Runtime accumulators. */
   modifiers: {
     production: number;

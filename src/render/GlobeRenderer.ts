@@ -34,6 +34,7 @@ import { COUNTRY_BY_ID } from '../data/countries';
 import { CITIES } from '../data/cities';
 import { buildGlobeGeometry, type GlobeGeometry } from './globeGeography';
 import { CameraRig } from './CameraRig';
+import { ArmyMarkers, type ArmyMarkerSpec } from './ArmyMarkers';
 import { PALETTE } from './theme';
 
 /**
@@ -74,6 +75,7 @@ export class GlobeRenderer {
   private readonly atmosphere: ShaderMaterial;
   private readonly cityPoints: Points;
   private readonly stars: Points;
+  private readonly armyMarkers = new ArmyMarkers();
   private readonly raycaster = new Raycaster();
   private readonly pointerNdc = new Vector2();
   private readonly detailUniform = { value: 0 };
@@ -180,6 +182,8 @@ export class GlobeRenderer {
 
     this.cityPoints = this.createCityPoints();
     this.scene.add(this.cityPoints);
+
+    this.scene.add(this.armyMarkers.object);
 
     this.rig.update(1);
   }
@@ -341,6 +345,10 @@ export class GlobeRenderer {
     this.cityMarkersEnabled = enabled;
   }
 
+  setArmies(markers: ArmyMarkerSpec[]): void {
+    this.armyMarkers.setArmies(markers);
+  }
+
   setSelection(selectedId: string | null, hoveredId: string | null): void {
     if (this.selectedId === selectedId && this.hoveredId === hoveredId) return;
     this.selectedId = selectedId;
@@ -492,6 +500,7 @@ export class GlobeRenderer {
       this.detailUniform.value = this.rig.detailFactor;
       this.cityPoints.visible = this.cityMarkersEnabled && altitude < 0.34;
       (this.cityPoints.material as PointsMaterial).size = clamp(0.035 + altitude * 0.12, 0.035, 0.12);
+      this.armyMarkers.update(clamp(altitude * 1.15, 0.5, 2.1));
       this.ocean.lookAt(this.rig.camera.position);
       this.stars.rotation.y += deltaSeconds * 0.0025;
 
@@ -524,6 +533,7 @@ export class GlobeRenderer {
     for (const geometry of this.geometry.highlights.values()) geometry.dispose();
     for (const geometry of this.geometry.outlines.values()) geometry.dispose();
     this.surfaceMaterial.dispose();
+    this.armyMarkers.dispose();
     this.renderer.dispose();
   }
 }

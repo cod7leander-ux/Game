@@ -1,4 +1,5 @@
 import type { LocalizedText } from '../../i18n/types';
+import type { Army } from './armies';
 
 export type UnitDomain = 'ground' | 'air' | 'naval' | 'support';
 
@@ -105,7 +106,9 @@ export interface ProductionOrder {
 }
 
 export interface MilitaryState {
-  /** unitId → number of formations. */
+  /** Operational formations grouped into mobile armies. */
+  armies: Army[];
+  /** unitId → number of formations. Always derived from `armies`. */
   formations: Record<string, number>;
   queue: ProductionOrder[];
   /** 0..1 — supply, morale and equipment condition. */

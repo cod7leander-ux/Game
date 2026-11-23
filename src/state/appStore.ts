@@ -6,6 +6,7 @@ import { saveManager } from '../save/SaveManager';
 import type { SaveSlotId, SaveSummary } from '../save/types';
 import { useSettingsStore } from './settingsStore';
 import { translate } from '../i18n';
+import { formatNumber } from '../i18n/format';
 import type { MessageKey } from '../i18n/locales/en';
 
 /**
@@ -77,6 +78,9 @@ interface AppState {
   togglePause: () => void;
   startResearch: (techId: string) => void;
   queueUnit: (unitId: string) => void;
+  marchArmy: (armyId: string, targetId: string) => void;
+  declareWar: (targetId: string) => void;
+  makePeace: (targetId: string) => void;
 
   showToast: (message: string, tone?: Toast['tone']) => void;
   dismissToast: () => void;
@@ -366,6 +370,44 @@ export const useAppStore = create<AppState>()((set, get) => ({
       get().showToast(message('military.insufficient'), 'warning');
       return;
     }
+    set({ snapshot: session.snapshot() });
+  },
+
+  marchArmy: (armyId, targetId) => {
+    const session = get().session;
+    if (!session) return;
+    const result = session.marchArmy(armyId, targetId);
+    if (!result.ok) {
+      get().showToast(message('military.marchFailed'), 'warning');
+      return;
+    }
+    const locale = useSettingsStore.getState().locale;
+    get().showToast(
+      message('military.marchStarted', { days: formatNumber(result.days, locale) }),
+      'info',
+    );
+    set({ snapshot: session.snapshot() });
+  },
+
+  declareWar: (targetId) => {
+    const session = get().session;
+    if (!session) return;
+    if (!session.declareWar(targetId)) {
+      get().showToast(message('diplomacy.actionFailed'), 'warning');
+      return;
+    }
+    get().showToast(message('diplomacy.warDeclared'), 'danger');
+    set({ snapshot: session.snapshot() });
+  },
+
+  makePeace: (targetId) => {
+    const session = get().session;
+    if (!session) return;
+    if (!session.makePeace(targetId)) {
+      get().showToast(message('diplomacy.actionFailed'), 'warning');
+      return;
+    }
+    get().showToast(message('diplomacy.peaceMade'), 'success');
     set({ snapshot: session.snapshot() });
   },
 

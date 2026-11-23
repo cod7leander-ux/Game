@@ -2,6 +2,8 @@ import { getUnit } from '../../data/units';
 import type { CountryState } from '../country/types';
 import { canBuildUnit, recomputeStrength } from '../country/modifiers';
 import type { SimEventSink } from '../events';
+import { syncMilitaryTotals } from './armies';
+import type { ArmySystem } from './ArmySystem';
 import type { ProductionOrder } from './types';
 
 /**
@@ -27,17 +29,21 @@ export const canAffordUnit = (country: CountryState, unitId: string): boolean =>
   );
 };
 
-export type EnqueueFailure = 'unknownUnit' | 'locked' | 'queueFull' | 'unaffordable';
+export type EnqueueFailure = 'unknownUnit' | 'locked' | 'queueFull' | 'unaffordable' | 'occupied';
 
 export type EnqueueResult = { ok: true; order: ProductionOrder } | { ok: false; reason: EnqueueFailure };
 
 export class MilitarySystem {
-  constructor(private readonly events: SimEventSink) {}
+  constructor(
+    private readonly events: SimEventSink,
+    private readonly armies: ArmySystem,
+  ) {}
 
   enqueue(country: CountryState, unitId: string, day: number): EnqueueResult {
     const unit = getUnit(unitId);
     if (!unit) return { ok: false, reason: 'unknownUnit' };
     if (!canBuildUnit(country, unitId)) return { ok: false, reason: 'locked' };
+    if (country.occupierId) return { ok: false, reason: 'occupied' };
     if (country.military.queue.length >= MAX_QUEUE) return { ok: false, reason: 'queueFull' };
     if (!canAffordUnit(country, unitId)) return { ok: false, reason: 'unaffordable' };
 
@@ -63,8 +69,15 @@ export class MilitarySystem {
   }
 
   tick(country: CountryState, day: number): void {
+    if (country.occupierId) {
+      country.military.readiness = Math.max(0.3, country.military.readiness - 0.001);
+      recomputeStrength(country);
+      return;
+    }
     if (country.military.queue.length === 0) {
       country.military.readiness = Math.min(0.98, country.military.readiness + 0.0002);
+      // Strength is derived from readiness, so it must follow every change.
+      recomputeStrength(country);
       return;
     }
 
@@ -79,13 +92,12 @@ export class MilitarySystem {
     for (const order of completed) {
       const index = country.military.queue.indexOf(order);
       if (index >= 0) country.military.queue.splice(index, 1);
-      country.military.formations[order.unitId] = (country.military.formations[order.unitId] ?? 0) + 1;
-      const unit = getUnit(order.unitId);
-      if (unit) country.military.manpowerCommitted += unit.manpower;
+      const army = this.armies.homeArmy(country, day);
+      army.composition[order.unitId] = (army.composition[order.unitId] ?? 0) + 1;
       this.events.emit({ type: 'unitReady', countryId: country.id, unitId: order.unitId, day });
     }
 
-    recomputeStrength(country);
+    syncMilitaryTotals(country);
   }
 
   /** Daily upkeep figure in credits, shown in the military panel. */

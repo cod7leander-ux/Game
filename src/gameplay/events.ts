@@ -8,6 +8,26 @@ export type SimEvent =
   | { type: 'peaceSigned'; aId: string; bId: string; day: number }
   | { type: 'allianceFormed'; aId: string; bId: string; day: number }
   | { type: 'tradeOpened'; aId: string; bId: string; day: number }
+  | {
+      type: 'armyMarch';
+      countryId: string;
+      armyId: string;
+      from: string;
+      to: string;
+      day: number;
+    }
+  | {
+      type: 'battleResolved';
+      locationId: string;
+      attackerId: string;
+      defenderId: string;
+      attackerWon: boolean;
+      attackerLosses: number;
+      defenderLosses: number;
+      day: number;
+    }
+  | { type: 'territoryOccupied'; countryId: string; occupierId: string; day: number }
+  | { type: 'territoryLiberated'; countryId: string; day: number }
   | { type: 'lowTreasury'; countryId: string; day: number }
   | { type: 'aiDecision'; countryId: string; focus: string; day: number };
 

@@ -21,6 +21,7 @@ const DOMAINS: UnitDomain[] = ['ground', 'air', 'naval', 'support'];
 export function MilitaryPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
   const { t: tr, locale, n, compact, percent, decimal } = useI18n();
   const queueUnit = useAppStore((state) => state.queueUnit);
+  const marchArmy = useAppStore((state) => state.marchArmy);
   const [domain, setDomain] = useState<UnitDomain>('ground');
   const completed = new Set(snapshot.research.completed);
   const stockpile = new Map(snapshot.resources.map((resource) => [resource.id, resource.amount]));
@@ -47,6 +48,12 @@ export function MilitaryPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
           <strong>{n(snapshot.country.strength)}</strong>
         </div>
       </header>
+
+      {snapshot.country.occupierName && (
+        <p className="hint">
+          {tr('overview.occupied', { country: snapshot.country.occupierName })}
+        </p>
+      )}
 
       <div className="metric-grid">
         <div className="metric">
@@ -142,6 +149,80 @@ export function MilitaryPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
           );
         })}
       </div>
+
+      <section className="sub-section">
+        <header className="sub-section__header">
+          <h3>{tr('military.armies')}</h3>
+          <span className="count">{n(snapshot.armies.length)}</span>
+        </header>
+        {snapshot.armies.length === 0 ? (
+          <p className="muted">{tr('military.noArmies')}</p>
+        ) : (
+          <div className="army-list">
+            {snapshot.armies.map((army) => (
+              <article key={army.id} className={`army-card ${army.movement ? 'is-marching' : ''}`}>
+                <header className="army-card__header">
+                  <div>
+                    <h4>{tr('military.armyName', { n: n(army.ordinal) })}</h4>
+                    <span className="army-card__location">
+                      {army.movement ? army.movement.toName : army.locationName}
+                    </span>
+                  </div>
+                  <div className="army-card__strength">
+                    <span>{tr('military.strength')}</span>
+                    <strong>{n(army.strength)}</strong>
+                  </div>
+                </header>
+
+                <div className="army-card__units">
+                  {army.composition.slice(0, 4).map((entry) => (
+                    <span key={entry.unitId} className="army-chip">
+                      {n(entry.count)}× {entry.name}
+                    </span>
+                  ))}
+                  {army.composition.length > 4 && (
+                    <span className="army-chip army-chip--more">
+                      +{n(army.composition.length - 4)}
+                    </span>
+                  )}
+                </div>
+
+                {army.movement ? (
+                  <div className="army-card__march">
+                    <span>{tr('military.arrivesIn', { days: n(army.movement.daysRemaining) })}</span>
+                    <div className="meter meter--cyan">
+                      <span style={{ width: `${Math.round(army.movement.progress * 100)}%` }} />
+                    </div>
+                  </div>
+                ) : army.targets.length > 0 ? (
+                  <div className="army-card__targets">
+                    <span className="army-card__label">{tr('military.armyTargets')}</span>
+                    {army.targets.map((target) => (
+                      <button
+                        key={target.id}
+                        type="button"
+                        className={`btn btn--small ${target.atWar ? 'btn--danger' : ''}`}
+                        onClick={() => marchArmy(army.id, target.id)}
+                        title={
+                          target.atWar
+                            ? tr('diplomacy.status.war')
+                            : target.ally
+                              ? tr('diplomacy.status.ally')
+                              : undefined
+                        }
+                      >
+                        {target.name}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="army-card__hint muted">{tr('military.noTargets')}</p>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="sub-section">
         <header className="sub-section__header">

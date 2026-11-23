@@ -6,7 +6,9 @@ import { UNIT_LIST, getUnit } from '../../data/units';
 import type { CountryState } from '../country/types';
 import { recomputeStrength } from '../country/modifiers';
 import type { SimEventSink } from '../events';
+import { armyPower } from '../military/armies';
 import { canAffordUnit } from '../military/MilitarySystem';
+import { areAtWar, canEnterTerritory } from '../diplomacy/helpers';
 import { technologyAvailable } from '../research/ResearchSystem';
 import type { World } from '../World';
 import type { AIFocus, AIPersonality, AIPersonalityId, AIState } from './types';
@@ -200,6 +202,15 @@ export const decide = (
   return { focus, researchId, unitId, rationale };
 };
 
+/** Actions the AI may take through the same public systems as the player. */
+export interface AIActions {
+  startResearch: (countryId: string, techId: string) => boolean;
+  queueUnits: (countryId: string, unitId: string) => boolean;
+  marchArmy: (countryId: string, armyId: string, targetId: string) => boolean;
+  declareWar: (countryId: string, targetId: string) => boolean;
+  makePeace: (countryId: string, targetId: string) => boolean;
+}
+
 export class AIDirector {
   constructor(
     private readonly world: World,
@@ -208,22 +219,17 @@ export class AIDirector {
   ) {}
 
   /** Called once per simulated day. Only the scheduled slice of nations runs. */
-  onDay(day: number, startResearch: (countryId: string, techId: string) => boolean, queueUnit: (countryId: string, unitId: string) => boolean): void {
+  onDay(day: number, actions: AIActions): void {
     const interval = GAME.aiDecisionIntervalDays;
     for (const country of this.world.countries.values()) {
       if (country.id === this.world.playerCountryId) continue;
       const bucket = (country.id.charCodeAt(0) + country.id.charCodeAt(2)) % interval;
       if (day % interval !== bucket) continue;
-      this.evaluate(country, day, startResearch, queueUnit);
+      this.evaluate(country, day, actions);
     }
   }
 
-  private evaluate(
-    country: CountryState,
-    day: number,
-    startResearch: (countryId: string, techId: string) => boolean,
-    queueUnit: (countryId: string, unitId: string) => boolean,
-  ): void {
+  private evaluate(country: CountryState, day: number, actions: AIActions): void {
     const personality = PERSONALITIES[country.ai.personalityId] ?? PERSONALITIES.balanced;
     const context: AIContext = {
       world: this.world,
@@ -239,12 +245,20 @@ export class AIDirector {
       country.ai.ambition + (country.military.strengthIndex > 4000 ? 0.004 : -0.002),
     );
 
+    // An occupied nation cannot govern or produce, but its surviving armies
+    // still try to free the homeland.
+    if (country.occupierId) {
+      this.commandArmies(country, actions);
+      recomputeStrength(country);
+      return;
+    }
+
     const decision = decide(context, this.evaluators);
     country.ai.focus = decision.focus;
     country.ai.lastDecisionDay = day;
     country.ai.lastRationale = decision.rationale;
 
-    if (decision.researchId && startResearch(country.id, decision.researchId)) {
+    if (decision.researchId && actions.startResearch(country.id, decision.researchId)) {
       this.events.emit({ type: 'aiDecision', countryId: country.id, focus: 'research', day });
     }
 
@@ -256,7 +270,7 @@ export class AIDirector {
     if (decision.unitId && canSpend) {
       // Keep a reserve so the AI does not spend itself into collapse.
       const reserve = country.economy.gdp * 0.002;
-      if (country.economy.resources.money > reserve && queueUnit(country.id, decision.unitId)) {
+      if (country.economy.resources.money > reserve && actions.queueUnits(country.id, decision.unitId)) {
         this.events.emit({ type: 'aiDecision', countryId: country.id, focus: 'military', day });
       }
     }
@@ -264,10 +278,100 @@ export class AIDirector {
     if (country.military.queue.length === 0 && canSpend) {
       const cheap = getUnit('inf_rifle');
       if (cheap && country.economy.resources.money > country.economy.gdp * 0.004) {
-        queueUnit(country.id, cheap.id);
+        actions.queueUnits(country.id, cheap.id);
       }
     }
 
+    this.commandArmies(country, actions);
+    this.considerDiplomacy(country, day, actions);
     recomputeStrength(country);
+  }
+
+  /** Combat power an attacker would meet in a country right now. */
+  private defenceAt(target: CountryState, attacker: CountryState): number {
+    let power = 0;
+    for (const country of this.world.countries.values()) {
+      if (country.id !== target.id && !target.diplomacy.allies.includes(country.id)) continue;
+      if (country.id !== target.id && !areAtWar(country, attacker)) continue;
+      for (const army of country.military.armies) {
+        if (army.locationId !== target.id || army.movement) continue;
+        power += armyPower(army, country);
+      }
+    }
+    return power;
+  }
+
+  /** Moves idle armies against weaker neighbours or to free occupied home soil. */
+  private commandArmies(country: CountryState, actions: AIActions): void {
+    if (country.military.armies.length === 0) return;
+    const idle = country.military.armies.filter((army) => !army.movement);
+    if (idle.length === 0) return;
+    idle.sort((a, b) => armyPower(b, country) - armyPower(a, country));
+
+    const home = this.world.get(country.id);
+    if (home?.occupierId) {
+      for (const army of idle) {
+        if (!this.world.neighboursOf(army.locationId).includes(country.id)) continue;
+        if (actions.marchArmy(country.id, army.id, country.id)) return;
+      }
+    }
+
+    for (const army of idle) {
+      const targets = this.world
+        .neighboursOf(army.locationId)
+        .map((id) => this.world.get(id))
+        .filter((entry): entry is CountryState => Boolean(entry))
+        .filter(
+          (entry) =>
+            entry.id !== country.id &&
+            entry.occupierId !== country.id &&
+            areAtWar(country, entry) &&
+            canEnterTerritory(country, entry),
+        );
+      if (targets.length === 0) continue;
+
+      const power = armyPower(army, country);
+      targets.sort((a, b) => this.defenceAt(a, country) - this.defenceAt(b, country));
+      const target = targets[0];
+      if (power < this.defenceAt(target, country) * 1.2) continue;
+      if (actions.marchArmy(country.id, army.id, target.id)) return;
+    }
+  }
+
+  /** Rare war declarations against weaker neighbours; peace when losing badly. */
+  private considerDiplomacy(country: CountryState, day: number, actions: AIActions): void {
+    const rng = this.world.rngFor(country.id, day + 11);
+    const personality = PERSONALITIES[country.ai.personalityId] ?? PERSONALITIES.balanced;
+
+    if (country.diplomacy.wars.length > 0) {
+      for (const enemyId of [...country.diplomacy.wars]) {
+        const enemy = this.world.get(enemyId);
+        if (!enemy) continue;
+        if (
+          country.military.strengthIndex < enemy.military.strengthIndex * 0.45 &&
+          rng.chance(0.25)
+        ) {
+          actions.makePeace(country.id, enemyId);
+          return;
+        }
+      }
+      return;
+    }
+
+    if (personality.aggression < 0.4 || !rng.chance(0.02 + personality.aggression * 0.03)) return;
+
+    const candidates = this.world
+      .neighboursOf(country.id)
+      .map((id) => this.world.get(id))
+      .filter((entry): entry is CountryState => Boolean(entry))
+      .filter(
+        (entry) =>
+          !entry.occupierId &&
+          !country.diplomacy.allies.includes(entry.id) &&
+          !areAtWar(country, entry) &&
+          entry.military.strengthIndex < country.military.strengthIndex * 0.55,
+      )
+      .sort((a, b) => a.military.strengthIndex - b.military.strengthIndex);
+    if (candidates[0]) actions.declareWar(country.id, candidates[0].id);
   }
 }

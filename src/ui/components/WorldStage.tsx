@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { GlobeRenderer } from '../../render/GlobeRenderer';
+import type { ArmyMarkerSpec } from '../../render/ArmyMarkers';
 import { resolveQuality, useSettingsStore } from '../../state/settingsStore';
 import { useAppStore } from '../../state/appStore';
 import { useI18n } from '../hooks/useI18n';
@@ -18,6 +19,7 @@ interface WorldStageProps {
   interactive: boolean;
   autoRotate?: number;
   labels?: StageLabel[];
+  armies?: ArmyMarkerSpec[];
   className?: string;
 }
 
@@ -27,7 +29,13 @@ interface WorldStageProps {
  * The renderer owns camera and picking; React only sends intent (select, hover,
  * focus) and renders crisp localised labels above the canvas.
  */
-export function WorldStage({ interactive, autoRotate = 0, labels = [], className }: WorldStageProps) {
+export function WorldStage({
+  interactive,
+  autoRotate = 0,
+  labels = [],
+  armies = [],
+  className,
+}: WorldStageProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const labelRefs = useRef(new Map<string, HTMLDivElement>());
@@ -88,6 +96,10 @@ export function WorldStage({ interactive, autoRotate = 0, labels = [], className
   useEffect(() => {
     rendererRef.current?.setCityMarkers(cityMarkers);
   }, [cityMarkers, status]);
+
+  useEffect(() => {
+    rendererRef.current?.setArmies(armies);
+  }, [armies, status]);
 
   useEffect(() => {
     rendererRef.current?.setQuality(resolveQuality(graphics));

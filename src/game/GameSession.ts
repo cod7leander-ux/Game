@@ -4,12 +4,13 @@ import { COUNTRY_BY_ID } from '../data/countries';
 import { getTech } from '../data/research';
 import { getUnit } from '../data/units';
 import { translate } from '../i18n';
-import { formatGameDate, gameYear } from '../i18n/format';
+import { formatGameDate, formatNumber, gameYear } from '../i18n/format';
 import { localize } from '../i18n/types';
 import type { LocaleCode } from '../i18n/types';
 import type { CountryState, NotificationEntry } from '../gameplay/country/types';
 import { Simulation } from '../gameplay/Simulation';
 import type { SimEvent } from '../gameplay/events';
+import type { MarchResult } from '../gameplay/military/ArmySystem';
 import { World } from '../gameplay/World';
 import type { MessageKey } from '../i18n/locales/en';
 import type { SaveFile } from '../save/types';
@@ -166,6 +167,18 @@ export class GameSession {
     return this.simulation.queueProduction(this.world.playerCountryId, unitId);
   }
 
+  marchArmy(armyId: string, targetId: string): MarchResult {
+    return this.simulation.marchArmy(this.world.playerCountryId, armyId, targetId);
+  }
+
+  declareWar(targetId: string): boolean {
+    return this.simulation.declareWar(this.world.playerCountryId, targetId);
+  }
+
+  makePeace(targetId: string): boolean {
+    return this.simulation.makePeace(this.world.playerCountryId, targetId);
+  }
+
   playerCountry(): CountryState | undefined {
     return this.world.player;
   }
@@ -277,6 +290,51 @@ export class GameSession {
             a: countryName(event.aId),
             b: countryName(event.bId),
           }),
+          severity: 'success',
+        });
+        return;
+      }
+      case 'battleResolved': {
+        if (event.attackerId !== playerId && event.defenderId !== playerId) return;
+        const won = event.attackerId === playerId ? event.attackerWon : !event.attackerWon;
+        const own = event.attackerId === playerId ? event.attackerLosses : event.defenderLosses;
+        const enemy = event.attackerId === playerId ? event.defenderLosses : event.attackerLosses;
+        this.pushNotification({
+          kind: 'war',
+          message: translate(locale, won ? 'notify.battleWon' : 'notify.battleLost', {
+            place: countryName(event.locationId),
+            own: formatNumber(own, locale),
+            enemy: formatNumber(enemy, locale),
+          }),
+          severity: won ? 'success' : 'danger',
+        });
+        return;
+      }
+      case 'territoryOccupied': {
+        if (event.occupierId === playerId) {
+          this.pushNotification({
+            kind: 'war',
+            message: translate(locale, 'notify.occupationGained', {
+              country: countryName(event.countryId),
+            }),
+            severity: 'success',
+          });
+        } else if (event.countryId === playerId) {
+          this.pushNotification({
+            kind: 'war',
+            message: translate(locale, 'notify.occupationSuffered', {
+              country: countryName(event.occupierId),
+            }),
+            severity: 'danger',
+          });
+        }
+        return;
+      }
+      case 'territoryLiberated': {
+        if (event.countryId !== playerId) return;
+        this.pushNotification({
+          kind: 'war',
+          message: translate(locale, 'notify.liberated'),
           severity: 'success',
         });
         return;

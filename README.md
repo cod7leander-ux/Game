@@ -2,7 +2,7 @@
 
 An original, offline 3D grand-strategy / real-time strategy game: you take command of one nation on a living Earth while every other country is run by AI. Inspired by the strategic scale of classic world-map RTS games, with its own world, rules, art direction and interface.
 
-**Status: Milestone 1 complete** — playable 3D Earth, nation selection with dossiers, an offline campaign loop (economy, research, production, diplomacy, AI), and a versioned local save system in English and Persian.
+**Status: Milestone 2 complete** — a playable 3D Earth, nation selection with dossiers, an offline campaign loop (economy, research, production, diplomacy, AI), persistent field armies that march across the globe, battles, territorial occupation, player-issued war and peace, and a versioned local save system in English and Persian.
 
 ---
 
@@ -34,17 +34,18 @@ src/
     country/        CountryState factory, modifiers, types
     economy/        income, resources, stability
     research/       tech progress and effects
-    military/       formations, production queues, upkeep
+    military/       armies, strategic movement, battles, production, upkeep
     diplomacy/      relations, wars, alliances, trade (weekly tick)
     ai/             AI director + utility evaluators
     events.ts       typed simulation event union
   game/           campaign facade (GameSession), snapshots, nation preview
-  render/         Three.js globe, camera rig, geometry builder, palette
+  render/         Three.js globe, camera rig, geometry builder, army markers, palette
   state/          zustand stores (app phase/session, persisted settings)
   i18n/           typed EN/FA catalogs, locale definitions, Intl formatters
   save/           versioned save schema, migrations, IndexedDB/localStorage
   ui/             screens, panels, dialogs, shared components, global CSS
-scripts/          Natural Earth → slim country dataset converter
+scripts/          Natural Earth converter, headless simulation smoke test
+.github/          CI: typecheck, production build, smoke test
 public/fonts/     Vazirmatn (Persian typography)
 ```
 
@@ -82,11 +83,22 @@ Nation previews use the same factory as a live campaign with the fixed default s
 
 Units are pure data (`data/units.ts`): domain, tier, stats (attack, defence, range, speed, detection), costs, build time, upkeep, manpower, required techs, and a `visual` block (variant, silhouette, palette) that the future model pipeline reads. The combat/movement engine will consume the same definitions; adding a unit is a data entry plus an optional model reference. 34 units ship across ground, air, naval and support, including locked tiers that open through research.
 
+## Armies, battles and occupation
+
+Armies are the operational layer, kept in `CountryState.military.armies` and serialised with the save:
+
+- Each army holds unit stacks (`composition`), stands in a country (`locationId`) and may be marching. `military.formations`, manpower and the strength index are always **derived** from armies by `syncMilitaryTotals`, so upkeep, AI scoring and the interface cannot disagree with the map.
+- **Movement** is ordered per army to an adjacent country and takes `distance / 260 km per day` (2–45 days). Neutral soil is closed: an army may enter its own country, an ally's, land it already occupies, or an enemy's. Marches advance in the daily tick, so a save mid-march restores exactly.
+- **Battles** resolve on arrival with `resolveBattle`: effective power is the same `armyPower` formula used by the AI and UI, both sides are perturbed deterministically, and casualties are removed per stack. Defeated attackers withdraw to their origin; defeated defenders fall back to their homeland or are destroyed.
+- **Occupation**: an army that reaches an undefended enemy country without a defending army or ally present occupies it (`occupierId`). Occupation transfers 40% of the country's daily revenue to the occupier, suppresses its stability and halts its production. A sovereign army re-entering its own land liberates it, and peace returns all occupied territory.
+- **AI army command** lives in `AIDirector.commandArmies`: idle armies are matched against the weakest reachable enemy when they hold a 1.2× power advantage, and occupied nations still try to free their homeland. The AI also declares war on much weaker neighbours when its posture is aggressive and sues for peace when badly outmatched.
+- **Rendering**: `ArmyMarkers` draws every player and enemy army as an instanced 3D spike planted on the surface at the country anchor, tinted by allegiance, scaled with camera altitude and offset so multiple armies in one country remain readable.
+
 ## Economy, research, diplomacy
 
 - **Economy**: money, energy, steel, oil, rare materials, electronics and food; sublinear GDP→tax revenue, government tax/upkeep modifiers, stability feedback, industry-driven resource production and oil demand from the army.
 - **Research**: 21 technologies in 7 branches, data-driven effect list (production, income, research speed, stability, attack, defence, manpower, unit unlocks) applied through country modifiers.
-- **Diplomacy**: relations in [-100, 100], wars, alliances, trade, weekly AI diplomacy. Player-facing actions are deliberately locked in Milestone 1; the systems and save data already support them.
+- **Diplomacy**: relations in [-100, 100], wars, alliances, trade, weekly drift. The foreign ministry now issues real orders: the player can declare war on, and make peace with, any neighbour. War dissolves alliances immediately; peace releases occupied territory and clears the war from both sides.
 
 ## Localization
 
@@ -94,7 +106,7 @@ Typed catalogs (`src/i18n/locales/en.ts`, `fa.ts`) keyed by `MessageKey`, so a m
 
 ## Save architecture
 
-`SaveFile` is versioned (`CURRENT_SAVE_VERSION`, migration chain in `save/migrations.ts`). A save contains campaign metadata, the full world (every country's state, AI memory, queues, relations), clock, notifications and seed. Storage is IndexedDB with a localStorage fallback, six slots (`auto`, 1–5), plus JSON import/export. Saves are schema-validated on load; incompatible or corrupt files surface a localized error instead of breaking the app.
+`SaveFile` is versioned (`CURRENT_SAVE_VERSION = 2`, migration chain in `save/migrations.ts`). A save contains campaign metadata, the full world (every country's state, armies and marches, occupation, AI memory, queues, relations), clock, notifications and seed. The v1 → v2 migration gives every country a field army built from its old aggregate formations and an explicit `occupierId`, so Milestone 1 campaigns keep loading. Storage is IndexedDB with a localStorage fallback, six slots (`auto`, 1–5), plus JSON import/export. Saves are schema-validated on load; incompatible or corrupt files surface a localized error instead of breaking the app.
 
 ## Asset and reference-image pipeline
 
@@ -114,20 +126,26 @@ npm install
 npm run dev       # http://localhost:5173
 npm run build     # typecheck + production bundle
 npm run preview   # serve the production build
+npm test          # headless campaign/army/battle/save/migration smoke test
 ```
+
+GitHub Actions runs the same typecheck, production build and smoke test on every push and pull request (`.github/workflows/ci.yml`).
 
 ## Milestone roadmap
 
 1. **Done** — foundation, 3D Earth, camera ladder, nation selection and dossiers, campaign shell, economy/research/military/diplomacy/AI simulation, save/load, EN + FA.
-2. Country depth: deeper economy, trade routes, AI budgeting, events.
-3. Military on the map: army stacks, movement, 3D battlefield layer, first fighter/tank/infantry/drone models and combat.
-4. Advanced AI, territory capture, peace deals, alliances in play.
-5. Production-quality assets, PBR materials, effects, audio, advanced UI, optimization pass.
-6. Content expansion to hundreds of units and a deeper world simulation.
+2. **Done** — field armies on the globe, strategic movement between neighbours, 3D army markers, deterministic battles, territorial occupation and liberation, AI army command, player war/peace actions, save schema v2, CI.
+3. Country and region depth: region-level territory, trade routes, AI budgeting, world events.
+4. Battlefield layer: first fighter/tank/infantry/drone models and tactical combat.
+5. Advanced AI, peace deals with terms, alliances that fight together on the map.
+6. Production-quality assets, PBR materials, effects, audio, advanced UI, optimization pass.
+7. Content expansion to hundreds of units and a deeper world simulation.
 
-## Known limitations (Milestone 1)
+## Known limitations (Milestone 2)
 
-- Player-issued wars, alliances, trade and army movement are intentionally not wired yet; the AI and data layers already support them.
-- The world surface is a single merged mesh; region-level geometry and unit instancing arrive with Milestone 3.
+- Movement is one hop at a time between adjacent countries; the adjacency graph is derived from label proximity, not exact border geometry, and there is no multi-hop pathfinding yet.
+- Armies are country-level stacks. Region-level territory, battlefields and individual 3D unit models (tank, fighter, infantry, drone) arrive in later milestones; the current map markers are army symbols, not unit models.
+- Occupation is whole-country and ends on liberation or peace; there are no separate peace terms, war score or annexation.
+- The world surface is a single merged mesh; region-level geometry arrives with a later milestone.
 - No audio yet.
 - The cloud preview VM renders with a software rasteriser (SwiftShader); the game detects that and selects the low preset, but frame rate there is far below what a hardware GPU delivers.

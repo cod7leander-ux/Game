@@ -66,6 +66,11 @@ export class DiplomacySystem {
     b.value = Math.min(b.value, -60);
     b.lastChangeDay = day;
 
+    // War dissolves alliances: an ally must not remain listed after choosing
+    // the opposite side.
+    aggressor.diplomacy.allies = aggressor.diplomacy.allies.filter((id) => id !== defender.id);
+    defender.diplomacy.allies = defender.diplomacy.allies.filter((id) => id !== aggressor.id);
+
     if (!aggressor.diplomacy.wars.includes(defender.id)) aggressor.diplomacy.wars.push(defender.id);
     if (!defender.diplomacy.wars.includes(aggressor.id)) defender.diplomacy.wars.push(aggressor.id);
     this.events.emit({
