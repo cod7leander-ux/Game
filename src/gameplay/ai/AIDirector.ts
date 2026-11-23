@@ -10,6 +10,11 @@ import { armyPower } from '../military/armies';
 import { canAffordUnit } from '../military/MilitarySystem';
 import { areAtWar, canEnterTerritory } from '../diplomacy/helpers';
 import { technologyAvailable } from '../research/ResearchSystem';
+import { addObjective, completeObjective, activeObjectives } from '../objectives/objectives';
+import { averageInfrastructure, keyRegion, resourceRegions } from '../regions/regions';
+import { normalizeAllocation, type EconomyAllocation } from '../economy/types';
+import { chooseProject } from '../production/ProductionSystem';
+import { haveNonAggression } from '../diplomacy/helpers';
 import type { World } from '../World';
 import type { AIFocus, AIPersonality, AIPersonalityId, AIState } from './types';
 
@@ -106,15 +111,15 @@ export const DEFAULT_EVALUATORS: AIEvaluator[] = [
 
 /** Branches each posture prefers when choosing a research programme. */
 const RESEARCH_PREFERENCE: Record<AIPersonalityId, string[]> = {
-  aggressive: ['armor', 'aviation', 'industry'],
-  defensive: ['armor', 'electronics', 'logistics'],
-  expansionist: ['logistics', 'armor', 'industry'],
+  aggressive: ['armor', 'artillery', 'infantry', 'aviation', 'industry'],
+  defensive: ['armor', 'airDefence', 'electronics', 'logistics'],
+  expansionist: ['logistics', 'armor', 'infantry', 'industry'],
   economic: ['industry', 'energy', 'logistics'],
-  diplomatic: ['electronics', 'logistics', 'industry'],
-  technological: ['electronics', 'aviation', 'industry'],
-  naval: ['naval', 'electronics', 'industry'],
-  air: ['aviation', 'electronics', 'industry'],
-  balanced: ['industry', 'aviation', 'armor'],
+  diplomatic: ['electronics', 'logistics', 'recon', 'industry'],
+  technological: ['electronics', 'drones', 'missiles', 'aviation', 'industry'],
+  naval: ['naval', 'missiles', 'electronics', 'industry'],
+  air: ['aviation', 'helicopters', 'drones', 'electronics'],
+  balanced: ['industry', 'recon', 'aviation', 'armor'],
 };
 
 const chooseResearch = (country: CountryState, personality: AIPersonality): string | null => {
@@ -209,6 +214,14 @@ export interface AIActions {
   marchArmy: (countryId: string, armyId: string, targetId: string) => boolean;
   declareWar: (countryId: string, targetId: string) => boolean;
   makePeace: (countryId: string, targetId: string) => boolean;
+  /** Civilian construction, paid from the same industry and resources. */
+  queueConstruction: (countryId: string, projectId: string, regionId: string) => boolean;
+  setAllocation: (countryId: string, allocation: EconomyAllocation) => void;
+  improveRelations: (countryId: string, targetId: string) => boolean;
+  formNonAggression: (countryId: string, targetId: string) => boolean;
+  grantMilitaryAccess: (countryId: string, targetId: string) => boolean;
+  imposeEmbargo: (countryId: string, targetId: string) => boolean;
+  formAlliance: (countryId: string, targetId: string) => boolean;
 }
 
 export class AIDirector {
@@ -258,6 +271,10 @@ export class AIDirector {
     country.ai.lastDecisionDay = day;
     country.ai.lastRationale = decision.rationale;
 
+    this.adjustAllocation(country, personality, decision.focus, threat, actions);
+    this.ensureObjectives(country, day);
+    this.updateObjectives(country, day);
+
     if (decision.researchId && actions.startResearch(country.id, decision.researchId)) {
       this.events.emit({ type: 'aiDecision', countryId: country.id, focus: 'research', day });
     }
@@ -282,9 +299,143 @@ export class AIDirector {
       }
     }
 
+    // Civilian investment: one project at a time when the treasury allows it.
+    if (canSpend && day % 4 === 0 && country.production.construction.length < 2) {
+      const project = chooseProject(country);
+      if (project) {
+        actions.queueConstruction(country.id, project.projectId, project.regionId);
+      }
+    }
+
     this.commandArmies(country, actions);
     this.considerDiplomacy(country, day, actions);
     recomputeStrength(country);
+  }
+
+  /** Budget shifts toward whatever the current focus and threat demand. */
+  private adjustAllocation(
+    country: CountryState,
+    personality: AIPersonality,
+    focus: AIFocus,
+    threat: number,
+    actions: AIActions,
+  ): void {
+    const atWar = country.diplomacy.wars.length > 0;
+    const target = {
+      military: clamp01(
+        0.18 + threat * 0.25 + (atWar ? 0.26 : 0) + personality.aggression * 0.15 +
+          (focus === 'military' || focus === 'expansion' || focus === 'defence' ? 0.16 : 0),
+      ),
+      infrastructure: clamp01(
+        0.18 + personality.weights.economy * 0.25 + (focus === 'economy' ? 0.12 : 0),
+      ),
+      research: clamp01(
+        0.1 + personality.weights.research * 0.3 + (focus === 'research' ? 0.16 : 0),
+      ),
+    };
+    const desired = normalizeAllocation(target);
+    const current = country.economy.allocation;
+    actions.setAllocation(
+      country.id,
+      normalizeAllocation({
+        military: current.military + (desired.military - current.military) * 0.35,
+        infrastructure:
+          current.infrastructure + (desired.infrastructure - current.infrastructure) * 0.35,
+        research: current.research + (desired.research - current.research) * 0.35,
+      }),
+    );
+  }
+
+  /** Maintains the objective list that governs army assignment. */
+  private ensureObjectives(country: CountryState, day: number): void {
+    if (country.occupierId) {
+      addObjective(country, { kind: 'recoverTerritory', priority: 1, note: 'homeland occupied' }, day);
+      return;
+    }
+
+    const capital = keyRegion(country);
+    if (capital) {
+      addObjective(
+        country,
+        { kind: 'defendCapital', priority: 0.92, targetRegionId: capital.id, note: 'capital' },
+        day,
+      );
+    }
+
+    for (const enemyId of country.diplomacy.wars) {
+      const enemy = this.world.get(enemyId);
+      if (!enemy) continue;
+      if (enemy.occupierId === country.id) {
+        for (const objective of activeObjectives(country)) {
+          if (objective.targetCountryId === enemyId) completeObjective(country, objective.id);
+        }
+        continue;
+      }
+      addObjective(
+        country,
+        {
+          kind: 'captureCapital',
+          priority: 0.98,
+          targetCountryId: enemyId,
+          targetRegionId: enemy.capitalRegionId,
+          note: 'war aim',
+        },
+        day,
+      );
+      const valuable = keyRegion(enemy);
+      if (valuable) {
+        addObjective(
+          country,
+          { kind: 'captureRegion', priority: 0.72, targetCountryId: enemyId, targetRegionId: valuable.id },
+          day,
+        );
+      }
+      const oil = resourceRegions(enemy, 'oil')[0];
+      if (oil) {
+        addObjective(
+          country,
+          { kind: 'secureResource', priority: 0.62, targetCountryId: enemyId, targetRegionId: oil.id },
+          day,
+        );
+      }
+    }
+
+    if (country.diplomacy.wars.length === 0 && country.ai.ambition > 0.55) {
+      const neighbour = this.world
+        .neighboursOf(country.id)
+        .map((id) => this.world.get(id))
+        .filter((entry): entry is CountryState => Boolean(entry))
+        .filter((entry) => entry.military.strengthIndex < country.military.strengthIndex * 0.6)
+        .sort((a, b) => a.military.strengthIndex - b.military.strengthIndex)[0];
+      if (neighbour) {
+        addObjective(
+          country,
+          { kind: 'prepareInvasion', priority: 0.4, targetCountryId: neighbour.id, note: 'ambition' },
+          day,
+        );
+      }
+    }
+
+    // A poorly supplied or unstable economy prioritises its own recovery.
+    if (averageInfrastructure(country) < 0.35) {
+      addObjective(country, { kind: 'protectIndustry', priority: 0.3, note: 'weak infrastructure' }, day);
+    }
+  }
+
+  /** Objective evaluation: completed when the target is actually held. */
+  private updateObjectives(country: CountryState, day: number): void {
+    void day;
+    for (const objective of activeObjectives(country)) {
+      if (!objective.targetCountryId) continue;
+      const target = this.world.get(objective.targetCountryId);
+      if (!target) {
+        completeObjective(country, objective.id);
+        continue;
+      }
+      if (target.occupierId === country.id && objective.kind !== 'captureRegion') {
+        completeObjective(country, objective.id);
+      }
+    }
   }
 
   /** Combat power an attacker would meet in a country right now. */
@@ -301,7 +452,11 @@ export class AIDirector {
     return power;
   }
 
-  /** Moves idle armies against weaker neighbours or to free occupied home soil. */
+  /**
+   * Moves idle armies according to strategic objectives, then opportunistically
+   * against weaker war opponents. Objectives give the AI a visible, persistent
+   * intent instead of re-deciding from scratch every cycle.
+   */
   private commandArmies(country: CountryState, actions: AIActions): void {
     if (country.military.armies.length === 0) return;
     const idle = country.military.armies.filter((army) => !army.movement);
@@ -314,9 +469,30 @@ export class AIDirector {
         if (!this.world.neighboursOf(army.locationId).includes(country.id)) continue;
         if (actions.marchArmy(country.id, army.id, country.id)) return;
       }
+      return;
     }
 
+    // Objective priority per target country; the strongest active objective wins.
+    const priorities = new Map<string, number>();
+    for (const objective of activeObjectives(country)) {
+      if (!objective.targetCountryId || objective.targetCountryId === country.id) continue;
+      priorities.set(
+        objective.targetCountryId,
+        Math.max(priorities.get(objective.targetCountryId) ?? 0, objective.priority),
+      );
+    }
+
+    const defensivePosture =
+      country.ai.personalityId === 'defensive' || country.stability < 0.3;
+    const atWar = country.diplomacy.wars.length > 0;
+
     for (const army of idle) {
+      // Keep a home guard: the strongest army stays put while the capital is
+      // threatened and the country is on the defensive.
+      if (defensivePosture && atWar && army === idle[0] && army.locationId === country.id) {
+        continue;
+      }
+
       const targets = this.world
         .neighboursOf(army.locationId)
         .map((id) => this.world.get(id))
@@ -331,10 +507,14 @@ export class AIDirector {
       if (targets.length === 0) continue;
 
       const power = armyPower(army, country);
-      targets.sort((a, b) => this.defenceAt(a, country) - this.defenceAt(b, country));
+      targets.sort((a, b) => {
+        const priorityDelta = (priorities.get(b.id) ?? 0) - (priorities.get(a.id) ?? 0);
+        if (Math.abs(priorityDelta) > 0.01) return priorityDelta;
+        return this.defenceAt(a, country) - this.defenceAt(b, country);
+      });
       const target = targets[0];
-      if (power < this.defenceAt(target, country) * 1.2) continue;
-      if (actions.marchArmy(country.id, army.id, target.id)) return;
+      if (power < this.defenceAt(target, country) * 1.1) continue;
+      if (actions.marchArmy(country.id, army.id, target.id)) continue;
     }
   }
 
@@ -358,17 +538,46 @@ export class AIDirector {
       return;
     }
 
-    if (personality.aggression < 0.4 || !rng.chance(0.02 + personality.aggression * 0.03)) return;
-
-    const candidates = this.world
+    const neighbours = this.world
       .neighboursOf(country.id)
       .map((id) => this.world.get(id))
-      .filter((entry): entry is CountryState => Boolean(entry))
+      .filter((entry): entry is CountryState => Boolean(entry));
+
+    // Peaceful diplomacy: build trust, buy safety and isolate rivals.
+    const friendly = neighbours
+      .filter((entry) => !areAtWar(country, entry) && !country.diplomacy.allies.includes(entry.id))
+      .sort(
+        (a, b) =>
+          (country.diplomacy.relations[b.id]?.value ?? 0) -
+          (country.diplomacy.relations[a.id]?.value ?? 0),
+      );
+    if (friendly[0] && rng.chance(0.08)) {
+      actions.improveRelations(country.id, friendly[0].id);
+    }
+    if (friendly[0] && rng.chance(0.025) && !haveNonAggression(country, friendly[0])) {
+      actions.formNonAggression(country.id, friendly[0].id);
+    }
+    const ally = country.diplomacy.allies[0];
+    if (ally && rng.chance(0.02)) {
+      if (!actions.grantMilitaryAccess(country.id, ally)) {
+        actions.formAlliance(country.id, ally);
+      }
+    }
+    const rival = neighbours
+      .filter((entry) => !country.diplomacy.allies.includes(entry.id))
+      .sort((a, b) => b.military.strengthIndex - a.military.strengthIndex)[0];
+    if (rival && rng.chance(0.015) && country.ai.threatLevel > 0.4) {
+      actions.imposeEmbargo(country.id, rival.id);
+    }
+    if (personality.aggression < 0.4 || !rng.chance(0.02 + personality.aggression * 0.03)) return;
+
+    const candidates = neighbours
       .filter(
         (entry) =>
           !entry.occupierId &&
           !country.diplomacy.allies.includes(entry.id) &&
           !areAtWar(country, entry) &&
+          !haveNonAggression(country, entry) &&
           entry.military.strengthIndex < country.military.strengthIndex * 0.55,
       )
       .sort((a, b) => a.military.strengthIndex - b.military.strengthIndex);

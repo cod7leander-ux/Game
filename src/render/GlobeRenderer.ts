@@ -35,6 +35,7 @@ import { CITIES } from '../data/cities';
 import { buildGlobeGeometry, type GlobeGeometry } from './globeGeography';
 import { CameraRig } from './CameraRig';
 import { ArmyMarkers, type ArmyMarkerSpec } from './ArmyMarkers';
+import { RegionMarkers, type RegionMarkerSpec } from './RegionMarkers';
 import { UnitLayer } from './units/UnitLayer';
 import { ProjectileLayer } from './ProjectileLayer';
 import type { BattleProjectileView, UnitTokenView } from '../game/types';
@@ -79,6 +80,7 @@ export class GlobeRenderer {
   private readonly cityPoints: Points;
   private readonly stars: Points;
   private readonly armyMarkers = new ArmyMarkers();
+  private readonly regionMarkers = new RegionMarkers();
   private readonly unitLayer = new UnitLayer();
   private readonly projectileLayer = new ProjectileLayer();
   private readonly raycaster = new Raycaster();
@@ -189,6 +191,7 @@ export class GlobeRenderer {
     this.scene.add(this.cityPoints);
 
     this.scene.add(this.armyMarkers.object);
+    this.scene.add(this.regionMarkers.object);
     this.scene.add(this.unitLayer.object);
     this.scene.add(this.projectileLayer.object);
 
@@ -354,6 +357,11 @@ export class GlobeRenderer {
 
   setArmies(markers: ArmyMarkerSpec[]): void {
     this.armyMarkers.setArmies(markers);
+  }
+
+  /** Province overlay for the strategic map. */
+  setRegions(markers: RegionMarkerSpec[]): void {
+    this.regionMarkers.setRegions(markers);
   }
 
   /** Projects every visible military token (strategic or battlefield). */
@@ -542,6 +550,7 @@ export class GlobeRenderer {
       this.cityPoints.visible = this.cityMarkersEnabled && altitude < 0.34;
       (this.cityPoints.material as PointsMaterial).size = clamp(0.035 + altitude * 0.12, 0.035, 0.12);
       this.armyMarkers.update(clamp(altitude * 1.15, 0.5, 2.1));
+      this.regionMarkers.update(clamp(altitude * 1.15, 0.5, 2.1));
       this.ocean.lookAt(this.rig.camera.position);
       this.stars.rotation.y += deltaSeconds * 0.0025;
 

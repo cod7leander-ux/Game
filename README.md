@@ -140,11 +140,21 @@ Armies are the operational layer, kept in `CountryState.military.armies` and ser
 - **AI army command** lives in `AIDirector.commandArmies`: idle armies are matched against the weakest reachable enemy when they hold a 1.2× power advantage, and occupied nations still try to free their homeland. The AI also declares war on much weaker neighbours when its posture is aggressive and sues for peace when badly outmatched.
 - **Rendering**: `ArmyMarkers` draws every player and enemy army as an instanced 3D spike planted on the surface at the country anchor, tinted by allegiance, scaled with camera altitude and offset so multiple armies in one country remain readable.
 
-## Economy, research, diplomacy
+## Strategic depth (Milestone 4)
 
-- **Economy**: money, energy, steel, oil, rare materials, electronics and food; sublinear GDP→tax revenue, government tax/upkeep modifiers, stability feedback, industry-driven resource production and oil demand from the army.
-- **Research**: 21 technologies in 7 branches, data-driven effect list (production, income, research speed, stability, attack, defence, manpower, unit unlocks) applied through country modifiers.
-- **Diplomacy**: relations in [-100, 100], wars, alliances, trade, weekly drift. The foreign ministry now issues real orders: the player can declare war on, and make peace with, any neighbour. War dissolves alliances immediately; peace releases occupied territory and clears the war from both sides.
+**Provinces and terrain.** Every country owns 2–5 generated regions (`data/regions.ts`) with a stable id, anchor, population share, industry share, infrastructure, resource richness, airport/port/coastal flags and strategic value. Runtime state lives separately in `CountryState.regions` (`gameplay/regions/types.ts`), so real GIS polygons can later replace the generated anchors through `geometryRef` without touching saves, AI or the economy. Terrain (`data/terrain.ts`) is pure data — plains, hills, mountains, forest, desert, urban, coastal, water — with march, defence, supply, air, detection and industry modifiers plus yields. `terrainProfile()` is the single weighted country-level view used by movement, supply and battle resolution; no separate combat system was introduced.
+
+**Economy and resources.** The daily tick produces steel, aluminium, oil, energy, electronics, food and rare materials region by region from terrain, richness, infrastructure, damage, unrest and industry, then aggregates nationally. Consumption covers army fuel, population food, construction upkeep and corruption; every stockpile and the treasury are capped. `economy.resourceFlow` records the net daily change per resource for the interface and future trade. Stockpiles are finite; population growth follows food and stability, and regional populations scale with it.
+
+**Budget and production.** `economy.allocation` splits industrial capacity between the army, construction and research (normalised to 1). Unit production still uses the existing `MilitarySystem` queue and unit catalogue. Civilian construction is `ProductionSystem` plus eight data-driven projects in `data/production.ts` (roads, rail, power, ports, air bases, depots, industrial zones, fortifications); projects consume money/steel/oil/electronics and industry-days, require technologies and infrastructure levels, and permanently raise a region's infrastructure, supply capacity, industrial bonus or resource output.
+
+**Research.** The tree grew to 29 technologies across 15 branches (adding infantry, artillery, helicopters, drones, missiles, air defence, reconnaissance and advanced weapons). Effects still flow through `recomputeModifiers`; the effect vocabulary gained supply, detection and resource efficiency, and research throughput scales with the research budget share.
+
+**Diplomacy.** `Relation` now carries non-aggression, military access, embargo, sanctions, trust and threat alongside war, alliance and trade. Every transition is normalised in `DiplomacySystem`: war clears pacts, alliances supersede non-aggression, sanctions block trade, breaking a pact destroys trust, and influence is spent on agreements. Contradictory states are prevented in one place and tested. Military access opens neutral territory to movement; trade partners add income; embargoes cut it.
+
+**AI.** The scheduled director (a seventh of nations per day) now adjusts the budget, starts construction, maintains a bounded objective list, selects research from personality-specific branches, forms pacts/alliances and embargoes rivals. `gameplay/objectives/` holds typed objectives (defend capital, capture capital/region, secure resources, prepare invasion, recover territory) with priority, target, owner, status and creation day. Army command follows objective priority first, keeps a home guard on defensive postures and refuses attacks it cannot win. No per-frame AI work was added.
+
+**Logistics and stability.** `LogisticsSystem` gives every army a 0..1 supply value driven by territory, source (home/allied/access), distance, infrastructure, terrain, occupation and logistics technology. Below 45% supply, readiness falls; sustained unsupply causes attrition and can destroy formations. `StabilitySystem` owns war exhaustion, unrest and national stability, fed by shortages, debt, occupation, war and government baseline; stability feeds income, production, research and AI posture. Supply also slows marches and weakens combat power.
 
 ## Localization
 
@@ -152,12 +162,13 @@ Typed catalogs (`src/i18n/locales/en.ts`, `fa.ts`) keyed by `MessageKey`, so a m
 
 ## Save architecture
 
-`SaveFile` is versioned (`CURRENT_SAVE_VERSION = 3`, migration chain in `save/migrations.ts`). A save contains campaign metadata, the full world (every country's state, armies and marches, occupation, army formations, AI memory, queues, relations), clock, notifications, seed and any active **battlefields** — including tactical unit positions, altitude, heading, health, formation, targets, cooldowns, casualties and team assignment.
+`SaveFile` is versioned (`CURRENT_SAVE_VERSION = 4`, migration chain in `save/migrations.ts`). A save contains campaign metadata, the full world (every country's state, provinces, economy allocation and resource flow, production queues, objectives, armies and marches with supply, occupation, AI memory, queues, relations incl. trust/threat/pacts), clock, notifications, seed and any active **battlefields** — including tactical unit positions, altitude, heading, health, formation, targets, cooldowns, casualties and team assignment.
 
 Migrations keep old campaigns loading:
 
 - **v1 → v2** gives every country a field army built from its old aggregate formations and an explicit `occupierId`.
 - **v2 → v3** gives every army a default formation and adds the battlefield list.
+- **v3 → v4** regenerates deterministic provinces for every country, adds aluminium, budget allocation, resource flow, production/objectives, war exhaustion/unrest, army supply fields and the expanded agreement set with neutral defaults — no saved army, relation or territory is dropped.
 
 Storage is IndexedDB with a localStorage fallback, six slots (`auto`, 1–5), plus JSON import/export. Saves are schema-validated on load; incompatible or corrupt files surface a localized error instead of breaking the app.
 
@@ -196,13 +207,14 @@ npm install
 npm run dev       # http://localhost:5173
 npm run build     # typecheck + production bundle
 npm run preview   # serve the production build
-npm test          # headless campaign + tactical layer suites (battles, weapons, saves)
+npm test          # headless campaign, tactical and strategic suites (economy, AI, logistics, migrations)
 ```
 
 The headless suites run the real simulation and tactical engine in Node, without a browser:
 
 - `scripts/sim-smoke.ts` — campaign, armies, war, battles, occupation, save round-trip, v1 migration.
 - `scripts/tactical-smoke.ts` — token creation, formations, movement/rotation/stopping, layer-aware targeting, weapon cooldowns, damage and destruction, projectile simulation, strategic→tactical bridge, battlefield persistence, team assignment and the v2 → v3 migration.
+- `scripts/strategic-smoke.ts` — regional economy/resources, construction queue and completion, research progress and effects, diplomatic pacts/war/peace/embargo guards, stability and war exhaustion, supply and attrition, AI focus/objectives, v4 round-trip, v3 → v4 migration, the full v1 → v4 chain and a 180-day multi-country campaign regression.
 
 GitHub Actions runs the same typecheck, production build and test suites on every push and pull request (`.github/workflows/ci.yml`).
 
@@ -211,13 +223,20 @@ GitHub Actions runs the same typecheck, production build and test suites on ever
 1. **Done** — foundation, 3D Earth, camera ladder, nation selection and dossiers, campaign shell, economy/research/military/diplomacy/AI simulation, save/load, EN + FA.
 2. **Done** — field armies on the globe, strategic movement between neighbours, 3D army markers, deterministic battles, territorial occupation and liberation, AI army command, player war/peace actions, save schema v2, CI.
 3. **Done** — tactical military foundation: data-driven units and weapons, 3D units on the globe, ground/air movement, formations, detection, targeting, real-time combat, placeholder projectiles, battlefield mode, tactical selection and command UI, save v3.
-4. Country and region depth: region-level territory, trade routes, AI budgeting, world events.
+4. **Done** — strategic depth: provinces and terrain, regional economy and resources, budget allocation, infrastructure production, expanded research, trust/threat diplomacy with pacts and embargoes, scheduled strategic AI with objectives, supply/logistics, unrest and war exhaustion, strategic UI and save v4 (v3 → v4 migration). Trade routes and world events remain future work.
 5. Final unit models from reference images, PBR materials, VFX and audio for the tactical layer; unit LOD and battlefield streaming.
 6. Advanced AI, peace deals with terms, alliances that fight together on the map, deeper battlefield AI.
 7. Content expansion to hundreds of units and a deeper world simulation.
 
-## Known limitations (Milestone 3)
+## Known limitations (Milestone 4)
 
+- Provinces are generated deterministically from country data, cities and anchors rather than real administrative polygons; `geometryRef` is the seam for a GIS dataset, and the map draws province markers rather than filled borders.
+- Occupation is still whole-country. Region control exists in state and in the inspector, but capturing a country occupies every province at once and no separate peace terms or annexation exist yet.
+- Resource flow is tracked per country, not per trade route: trade agreements add income but there is no convoy, blockade or market price model yet.
+- Logistics is one supply value per army derived from the standing country, not a routed supply network; there are no depot stockpiles or interdiction.
+- The strategic AI plans with a bounded objective list and coarse strength comparisons. It does not coordinate multi-army offensives or evaluate long-term war costs beyond treasury and supply checks.
+- Terrain modifies strategic movement, supply, defence and industry; tactical battles use the country's weighted terrain defence but not per-tile cover, height or line-of-sight.
+- The new panels and province markers were verified through typecheck, production build and the headless suites, not by clicking through a browser in this milestone.
 - Strategic movement is still one hop at a time between adjacent countries; adjacency comes from label proximity, not border geometry, and there is no multi-hop pathfinding.
 - Tactical battles **represent** an engagement the strategic layer already resolved. The winner and the formation losses are authoritative; tactical combat reconciles to that quota rather than feeding a new result back. A battle also runs in real time while campaign days advance.
 - Only engagements involving the player spawn a 3D battlefield. AI-vs-AI wars remain abstract, though the AI commands its side in any battlefield it fights.

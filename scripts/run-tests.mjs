@@ -9,6 +9,7 @@ import { resolve } from 'node:path';
 const entries = [
   { entry: 'scripts/sim-smoke.ts', name: 'sim-smoke' },
   { entry: 'scripts/tactical-smoke.ts', name: 'tactical-smoke' },
+  { entry: 'scripts/strategic-smoke.ts', name: 'strategic-smoke' },
 ];
 
 for (const { entry, name } of entries) {

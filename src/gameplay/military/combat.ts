@@ -27,11 +27,14 @@ export const resolveBattle = (
   rng: Rng,
   attacker: BattleSide,
   defenders: BattleSide[],
+  /** 0..1 terrain defensive bonus from the strategic terrain profile. */
+  terrainDefence = 0,
 ): BattleResult => {
   const attackerPower = armyPower(attacker.army, attacker.country) * rng.range(0.86, 1.14);
   const defenderPower =
     defenders.reduce((total, side) => total + armyPower(side.army, side.country), 0) *
-    rng.range(0.86, 1.14);
+    rng.range(0.86, 1.14) *
+    (1 + terrainDefence);
 
   if (defenderPower <= 0) {
     return {

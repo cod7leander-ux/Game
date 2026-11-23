@@ -1,3 +1,6 @@
+import { buildRegionStates } from '../gameplay/regions/regions';
+import { createEmptyResources, DEFAULT_ALLOCATION } from '../gameplay/economy/types';
+import { createRelation } from '../gameplay/diplomacy/types';
 import { CURRENT_SAVE_VERSION, type SaveFile } from './types';
 
 /**
@@ -80,6 +83,98 @@ export const MIGRATIONS: Record<number, Migration> = {
       battlefields: Array.isArray(file.battlefields) ? file.battlefields : [],
     };
   },
+
+  /**
+   * v4 adds strategic depth: regions, economy allocation and resource flow,
+   * production, objectives, war exhaustion/unrest, army supply and the expanded
+   * diplomatic agreement set. Regions are regenerated deterministically for the
+   * v3 nation, so no old territory is lost; every other field gets a neutral
+   * default instead of being dropped.
+   */
+  3: (file) => {
+    const world = (file.world ?? {}) as { day?: number; countries?: LegacyCountry[] };
+    const day = Number(world.day ?? 1);
+    const countries = (world.countries ?? []).map((raw) => {
+      const country = raw as Record<string, unknown>;
+      const id = String(country.id ?? '');
+      const population = Number(country.population ?? 0);
+      const economy = (country.economy ?? {}) as Record<string, unknown>;
+      const resources = { ...createEmptyResources(), ...(economy.resources as Record<string, number> | undefined) };
+      const diplomacy = (country.diplomacy ?? {}) as Record<string, unknown>;
+      const relations = (diplomacy.relations ?? {}) as Record<string, StopgapRelation>;
+      const upgradedRelations = Object.fromEntries(
+        Object.entries(relations).map(([otherId, relation]) => [
+          otherId,
+          {
+            ...createRelation(day, Number(relation.value ?? 0)),
+            ...relation,
+            nonAggression: Boolean(relation.nonAggression ?? false),
+            militaryAccess: Boolean(relation.militaryAccess ?? false),
+            embargo: Boolean(relation.embargo ?? false),
+            sanctioned: Boolean(relation.sanctioned ?? false),
+            trust: Number(relation.trust ?? 0),
+            threat: Number(relation.threat ?? 0),
+          },
+        ]),
+      );
+      const military = (country.military ?? {}) as Record<string, unknown>;
+      const armies = Array.isArray(military.armies) ? military.armies : [];
+      const existingRegions = Array.isArray(country.regions) ? country.regions : [];
+      const regions = existingRegions.length > 0 ? existingRegions : buildRegionStates(id, population);
+
+      return {
+        ...country,
+        regions,
+        capitalRegionId:
+          country.capitalRegionId ?? (regions[0] as { id?: string } | undefined)?.id ?? `${id}-R1`,
+        warExhaustion: Number(country.warExhaustion ?? 0),
+        unrest: Number(country.unrest ?? 0),
+        objectives: Array.isArray(country.objectives) ? country.objectives : [],
+        production:
+          country.production ?? { construction: [], completedProjects: 0 },
+        economy: {
+          ...economy,
+          resources,
+          allocation: economy.allocation ?? { ...DEFAULT_ALLOCATION },
+          resourceFlow: economy.resourceFlow ?? createEmptyResources(),
+        },
+        diplomacy: {
+          ...diplomacy,
+          relations: upgradedRelations,
+          allies: diplomacy.allies ?? [],
+          tradePartners: diplomacy.tradePartners ?? [],
+          wars: diplomacy.wars ?? [],
+          nonAggressionPartners: diplomacy.nonAggressionPartners ?? [],
+          militaryAccessPartners: diplomacy.militaryAccessPartners ?? [],
+          embargoed: diplomacy.embargoed ?? [],
+          influence: Number(diplomacy.influence ?? 0.5),
+        },
+        military: {
+          ...military,
+          armies: armies.map((army) => {
+            const entry = army as Record<string, unknown>;
+            return {
+              ...entry,
+              supply: Number(entry.supply ?? 1),
+              supplySource: entry.supplySource ?? id,
+              daysLowSupply: Number(entry.daysLowSupply ?? 0),
+            };
+          }),
+        },
+      };
+    });
+    return { ...file, version: 4, world: { ...world, countries } };
+  },
+};
+
+type StopgapRelation = Record<string, unknown> & {
+  value?: number;
+  nonAggression?: boolean;
+  militaryAccess?: boolean;
+  embargo?: boolean;
+  sanctioned?: boolean;
+  trust?: number;
+  threat?: number;
 };
 
 export class SaveVersionError extends Error {

@@ -4,6 +4,9 @@ import type { DiplomacyState } from '../diplomacy/types';
 import type { EconomyState } from '../economy/types';
 import type { MilitaryState } from '../military/types';
 import type { ResearchState } from '../research/types';
+import type { RegionState } from '../regions/types';
+import type { StrategicObjective } from '../objectives/types';
+import type { ProductionState } from '../production/types';
 
 export interface GeoBounds {
   minLon: number;
@@ -56,6 +59,18 @@ export interface CountryState {
   research: ResearchState;
   diplomacy: DiplomacyState;
   ai: AIState;
+  /** Provinces/regions owned by this country; the economic and supply base. */
+  regions: RegionState[];
+  /** Region id of the capital, used for objectives, supply and capture logic. */
+  capitalRegionId: string;
+  /** 0..1 war weariness accumulated by fighting and losses. */
+  warExhaustion: number;
+  /** 0..1 national unrest arising from shortages, debt and occupation. */
+  unrest: number;
+  /** Active and recently finished AI strategic objectives. */
+  objectives: StrategicObjective[];
+  /** Civilian construction queue and allocation state. */
+  production: ProductionState;
   /** Country currently occupying this territory, if any. */
   occupierId: string | null;
   /** Runtime accumulators. */
@@ -65,6 +80,10 @@ export interface CountryState {
     research: number;
     attack: number;
     defence: number;
+    supply: number;
+    detection: number;
+    /** Resource output efficiency bonus. */
+    resource: number;
   };
   lastAttackedDay: number;
 }

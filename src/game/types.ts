@@ -15,6 +15,63 @@ export interface ResourceView {
   short: string;
   color: string;
   amount: number;
+  /** Net daily change, positive for surplus. */
+  flow: number;
+}
+
+export interface RegionView {
+  id: string;
+  name: string;
+  terrain: string;
+  terrainColor: string;
+  isCapital: boolean;
+  population: number;
+  infrastructure: number;
+  supplyHub: number;
+  unrest: number;
+  damage: number;
+  control: 'sovereign' | 'occupied' | 'contested';
+  strategicValue: number;
+  hasPort: boolean;
+  hasAirport: boolean;
+  output: Array<{ id: ResourceId; name: string; amount: number }>;
+  selected: boolean;
+}
+
+export interface ProductionProjectView {
+  id: string;
+  name: string;
+  description: string;
+  days: number;
+  available: boolean;
+  locked: string[];
+  cost: Array<{ id: ResourceId; name: string; amount: number; enough: boolean }>;
+}
+
+export interface ConstructionView {
+  id: string;
+  projectName: string;
+  regionName: string;
+  daysRemaining: number;
+  totalDays: number;
+  progress: number;
+}
+
+export interface ObjectiveView {
+  id: string;
+  kind: string;
+  priority: number;
+  status: 'active' | 'completed' | 'failed';
+  targetName: string | null;
+  note: string;
+}
+
+export interface ArmySupplyView {
+  id: string;
+  ordinal: number;
+  supply: number;
+  sourceName: string | null;
+  daysLowSupply: number;
 }
 
 export interface FormationView {
@@ -44,6 +101,12 @@ export interface DiplomacyView {
   atWar: boolean;
   ally: boolean;
   trade: boolean;
+  nonAggression: boolean;
+  militaryAccess: boolean;
+  embargo: boolean;
+  sanctioned: boolean;
+  trust: number;
+  threat: number;
   neighbour: boolean;
   canDeclareWar: boolean;
   canMakePeace: boolean;
@@ -81,6 +144,9 @@ export interface ArmyView {
   strength: number;
   movement: ArmyMovementView | null;
   targets: ArmyTargetView[];
+  /** 0..1 operational supply and where it comes from. */
+  supply: number;
+  supplySourceName: string | null;
 }
 
 /** Lightweight marker consumed by the 3D army layer. */
@@ -89,6 +155,15 @@ export interface ArmyMarkerView {
   lon: number;
   lat: number;
   tone: 'player' | 'enemy' | 'ally';
+}
+
+/** Province marker for the strategic map overlay. */
+export interface RegionMarkerView {
+  id: string;
+  lon: number;
+  lat: number;
+  selected: boolean;
+  occupied: boolean;
 }
 
 /**
@@ -213,6 +288,10 @@ export interface PlayerSnapshot {
     taxRate: number;
     armyFormations: number;
     occupierName: string | null;
+    warExhaustion: number;
+    unrest: number;
+    allocation: { military: number; infrastructure: number; research: number };
+    regionCount: number;
   };
   armies: ArmyView[];
   mapArmies: ArmyMarkerView[];
@@ -233,6 +312,20 @@ export interface PlayerSnapshot {
     upkeep: number;
   };
   diplomacy: DiplomacyView[];
+  regions: RegionView[];
+  /** Region markers rendered on the globe. */
+  mapRegions: RegionMarkerView[];
+  production: {
+    construction: ConstructionView[];
+    projects: ProductionProjectView[];
+    completedProjects: number;
+  };
+  objectives: ObjectiveView[];
+  logistics: {
+    averageSupply: number;
+    armies: ArmySupplyView[];
+    supplyHubs: number;
+  };
   cities: CityDefinition[];
   warnings: string[];
   notifications: NotificationEntry[];

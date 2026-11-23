@@ -22,6 +22,16 @@ export const RESOURCES: Record<ResourceId, ResourceDefinition> = {
       fa: 'ورق زرهی، تیرهای سازه‌ای و بدنه کشتی‌ها.',
     },
   },
+  aluminum: {
+    id: 'aluminum',
+    name: { en: 'Aluminium', fa: 'آلومینیوم' },
+    short: { en: 'AL', fa: 'آلومینیوم' },
+    color: '#c8d4dd',
+    description: {
+      en: 'Light alloys for airframes, missiles and drones.',
+      fa: 'آلیاژهای سبک برای بدنه هواگردها، موشک‌ها و پهپادها.',
+    },
+  },
   oil: {
     id: 'oil',
     name: { en: 'Oil', fa: 'نفت' },
@@ -77,6 +87,7 @@ export const RESOURCES: Record<ResourceId, ResourceDefinition> = {
 export const RESOURCE_ORDER: ResourceId[] = [
   'money',
   'steel',
+  'aluminum',
   'oil',
   'energy',
   'electronics',

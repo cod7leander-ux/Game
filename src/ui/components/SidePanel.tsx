@@ -7,13 +7,19 @@ import { EconomyPanel } from '../panels/EconomyPanel';
 import { ResearchPanel } from '../panels/ResearchPanel';
 import { MilitaryPanel } from '../panels/MilitaryPanel';
 import { DiplomacyPanel } from '../panels/DiplomacyPanel';
+import { ProductionPanel } from '../panels/ProductionPanel';
+import { LogisticsPanel } from '../panels/LogisticsPanel';
+import { TerritoryPanel } from '../panels/TerritoryPanel';
 
 const TABS: Array<{ id: PanelTab; labelKey: MessageKey; glyph: string }> = [
   { id: 'overview', labelKey: 'panel.overview', glyph: '◈' },
   { id: 'economy', labelKey: 'panel.economy', glyph: '⛁' },
+  { id: 'production', labelKey: 'panel.production', glyph: '⚙' },
   { id: 'research', labelKey: 'panel.research', glyph: '⌬' },
   { id: 'military', labelKey: 'panel.military', glyph: '⚔' },
   { id: 'diplomacy', labelKey: 'panel.diplomacy', glyph: '✧' },
+  { id: 'logistics', labelKey: 'panel.logistics', glyph: '⛟' },
+  { id: 'territory', labelKey: 'panel.territory', glyph: '▦' },
 ];
 
 interface SidePanelProps {
@@ -46,9 +52,12 @@ export function SidePanel({ snapshot }: SidePanelProps) {
       <div className="side-panel__body">
         {tab === 'overview' && <OverviewPanel snapshot={snapshot} />}
         {tab === 'economy' && <EconomyPanel snapshot={snapshot} />}
+        {tab === 'production' && <ProductionPanel snapshot={snapshot} />}
         {tab === 'research' && <ResearchPanel snapshot={snapshot} />}
         {tab === 'military' && <MilitaryPanel snapshot={snapshot} />}
         {tab === 'diplomacy' && <DiplomacyPanel snapshot={snapshot} />}
+        {tab === 'logistics' && <LogisticsPanel snapshot={snapshot} />}
+        {tab === 'territory' && <TerritoryPanel snapshot={snapshot} />}
       </div>
     </aside>
   );

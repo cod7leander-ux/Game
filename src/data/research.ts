@@ -361,6 +361,154 @@ export const TECHNOLOGIES: TechDefinition[] = [
       { kind: 'income', value: 0.04 },
     ],
   },
+  // ── Milestone 4 branches ──────────────────────────────────────────────────
+  {
+    id: 'inf_doctrine',
+    name: { en: 'Infantry Doctrine', fa: 'آیین رزم پیاده' },
+    description: {
+      en: 'Small-unit tactics and fieldcraft make line infantry hold longer.',
+      fa: 'تاکتیک یگان‌های کوچک و مهارت میدانی، دوام پیاده‌نظام خط را افزایش می‌دهد.',
+    },
+    branch: 'infantry',
+    tier: 1,
+    cost: 280,
+    days: 26,
+    requires: [],
+    effects: [
+      { kind: 'defence', value: 0.04 },
+      { kind: 'supply', value: 0.03 },
+    ],
+  },
+  {
+    id: 'inf_modern',
+    name: { en: 'Modern Infantry Equipment', fa: 'تجهیزات نوین پیاده' },
+    description: {
+      en: 'Optics, body armour and networked radios raise infantry lethality.',
+      fa: 'اپتیک، زره بدنی و بی‌سیم شبکه‌ای، توان کشندگی پیاده را بالا می‌برد.',
+    },
+    branch: 'infantry',
+    tier: 2,
+    cost: 700,
+    days: 48,
+    requires: ['inf_doctrine'],
+    effects: [{ kind: 'attack', value: 0.04 }],
+  },
+  {
+    id: 'art_barrage',
+    name: { en: 'Predicted Fire Control', fa: 'کنترل آتش پیش‌بینی‌شده' },
+    description: {
+      en: 'Metrological correction and fire plans mass batteries quickly.',
+      fa: 'تصحیح هواشناسی و طرح‌های آتش، آتشبارها را سریع متمرکز می‌کند.',
+    },
+    branch: 'artillery',
+    tier: 1,
+    cost: 300,
+    days: 28,
+    requires: [],
+    effects: [{ kind: 'attack', value: 0.04 }],
+  },
+  {
+    id: 'hel_rotor',
+    name: { en: 'Rotorcraft Maintenance', fa: 'نگهداری بالگرد' },
+    description: {
+      en: 'Depot-level rotor and gearbox work raises helicopter availability.',
+      fa: 'تعمیرات تخصصی روتور و گیربکس، دسترسی به بالگرد را افزایش می‌دهد.',
+    },
+    branch: 'helicopters',
+    tier: 1,
+    cost: 420,
+    days: 34,
+    requires: [],
+    effects: [
+      { kind: 'defence', value: 0.02 },
+      { kind: 'unlockUnit', value: 0, unitId: 'air_attackheli' },
+    ],
+  },
+  {
+    id: 'drn_control',
+    name: { en: 'Drone Control Links', fa: 'پیوندهای کنترل پهپاد' },
+    description: {
+      en: 'Encrypted datalinks keep reconnaissance drones over the battlefield.',
+      fa: 'پیوندهای داده رمزنگاری‌شده، پهپادهای شناسایی را در میدان نگه می‌دارد.',
+    },
+    branch: 'drones',
+    tier: 1,
+    cost: 380,
+    days: 30,
+    requires: [],
+    effects: [
+      { kind: 'detection', value: 0.08 },
+      { kind: 'unlockUnit', value: 0, unitId: 'air_uav' },
+    ],
+  },
+  {
+    id: 'mis_ballistic',
+    name: { en: 'Ballistic Missile Production', fa: 'تولید موشک بالستیک' },
+    description: {
+      en: 'Solid motors and guidance integration enable theatre strike.',
+      fa: 'موتور جامد و یکپارچه‌سازی هدایت، ضربه میدانی را ممکن می‌کند.',
+    },
+    branch: 'missiles',
+    tier: 2,
+    cost: 980,
+    days: 66,
+    requires: ['elec_computing'],
+    effects: [
+      { kind: 'attack', value: 0.05 },
+      { kind: 'unlockUnit', value: 0, unitId: 'mis_tactical' },
+    ],
+  },
+  {
+    id: 'ad_network',
+    name: { en: 'Integrated Air Defence', fa: 'پدافند هوایی یکپارچه' },
+    description: {
+      en: 'Shared tracks link radar, missiles and interceptors into one net.',
+      fa: 'ردیابی مشترک، رادار، موشک و رهگیر را در یک شبکه پیوند می‌دهد.',
+    },
+    branch: 'airDefence',
+    tier: 2,
+    cost: 860,
+    days: 58,
+    requires: ['elec_radar'],
+    effects: [
+      { kind: 'detection', value: 0.1 },
+      { kind: 'defence', value: 0.04 },
+    ],
+  },
+  {
+    id: 'rec_eyes',
+    name: { en: 'Reconnaissance Network', fa: 'شبکه شناسایی' },
+    description: {
+      en: 'Ground scouts and signals intercepts feed a common picture.',
+      fa: 'شناسایی زمینی و رهگیری مخابرات، تصویری مشترک می‌سازد.',
+    },
+    branch: 'recon',
+    tier: 1,
+    cost: 320,
+    days: 28,
+    requires: [],
+    effects: [
+      { kind: 'detection', value: 0.12 },
+      { kind: 'unlockUnit', value: 0, unitId: 'air_recon' },
+    ],
+  },
+  {
+    id: 'adv_stealth',
+    name: { en: 'Low-Observable Systems', fa: 'سامانه‌های کم‌ردیاب' },
+    description: {
+      en: 'Shaping, coatings and emissions control shrink radar signatures.',
+      fa: 'شکل‌دهی، پوشش و کنترل انتشار، سطح مقطع راداری را کاهش می‌دهد.',
+    },
+    branch: 'advanced',
+    tier: 3,
+    cost: 1900,
+    days: 100,
+    requires: ['air_stealth', 'mis_guidance'],
+    effects: [
+      { kind: 'attack', value: 0.05 },
+      { kind: 'detection', value: 0.05 },
+    ],
+  },
 ];
 
 export const TECH_BY_ID: Record<string, TechDefinition> = Object.fromEntries(
@@ -372,11 +520,19 @@ export const getTech = (id: string): TechDefinition | undefined => TECH_BY_ID[id
 export const BRANCH_ORDER: ResearchBranch[] = [
   'industry',
   'energy',
+  'infantry',
   'armor',
+  'artillery',
   'aviation',
+  'helicopters',
+  'drones',
   'naval',
+  'missiles',
+  'airDefence',
+  'recon',
   'electronics',
   'logistics',
+  'advanced',
 ];
 
 export const techsByBranch = (branch: ResearchBranch): TechDefinition[] =>

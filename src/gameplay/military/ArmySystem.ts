@@ -15,6 +15,7 @@ import {
   type Army,
 } from './armies';
 import { resolveBattle, type BattleSide } from './combat';
+import { terrainProfile } from '../regions/regions';
 
 export type MarchFailure =
   | 'unknownArmy'
@@ -59,7 +60,14 @@ export class ArmySystem {
     }
     if (!canEnterTerritory(country, target)) return { ok: false, reason: 'forbidden' };
 
-    const days = marchDays(army.locationId, targetId, country.modifiers.production);
+    // Terrain and supply govern strategic mobility: mountains and underfed
+    // columns take far longer than a road march on the plains.
+    const terrain = terrainProfile(target).march;
+    const supplyPenalty = 1 + (1 - army.supply) * 0.4;
+    const days = Math.max(
+      2,
+      Math.round((marchDays(army.locationId, targetId, country.modifiers.production) / terrain) * supplyPenalty),
+    );
     army.movement = {
       from: army.locationId,
       to: targetId,
@@ -161,7 +169,12 @@ export class ArmySystem {
         roster: { ...side.army.composition },
       })),
     ];
-    const result = resolveBattle(rng, { army: attackerArmy, country: attackerCountry }, defenders);
+    const result = resolveBattle(
+      rng,
+      { army: attackerArmy, country: attackerCountry },
+      defenders,
+      terrainProfile(target).defence,
+    );
 
     // Surviving defenders fall back to their homeland, or are destroyed when
     // the battle is fought on that homeland.

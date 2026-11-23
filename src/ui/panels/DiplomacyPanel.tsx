@@ -20,6 +20,10 @@ export function DiplomacyPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
   const focusCountryCamera = useAppStore((state) => state.focusCountryCamera);
   const declareWar = useAppStore((state) => state.declareWar);
   const makePeace = useAppStore((state) => state.makePeace);
+  const improveRelations = useAppStore((state) => state.improveRelations);
+  const formNonAggression = useAppStore((state) => state.formNonAggression);
+  const imposeEmbargo = useAppStore((state) => state.imposeEmbargo);
+  const liftEmbargo = useAppStore((state) => state.liftEmbargo);
   const wars = snapshot.diplomacy.filter((entry) => entry.atWar);
   const allies = snapshot.diplomacy.filter((entry) => entry.ally);
   const trade = snapshot.diplomacy.filter((entry) => entry.trade);
@@ -77,15 +81,66 @@ export function DiplomacyPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
                   {signed(entry.value)}
                 </span>
               </button>
-              {(entry.canMakePeace || entry.canDeclareWar) && (
-                <button
-                  type="button"
-                  className={`btn btn--small ${entry.canMakePeace ? '' : 'btn--danger'}`}
-                  onClick={() => (entry.canMakePeace ? makePeace(entry.id) : declareWar(entry.id))}
-                >
-                  {tr(entry.canMakePeace ? 'diplomacy.action.peace' : 'diplomacy.action.war')}
-                </button>
-              )}
+              <div className="diplomacy-row__tags">
+                {entry.nonAggression && <span className="chip chip--muted">{tr('diplomacy.pact')}</span>}
+                {entry.militaryAccess && <span className="chip chip--muted">{tr('diplomacy.access')}</span>}
+                {entry.embargo && <span className="chip chip--danger">{tr('diplomacy.embargo')}</span>}
+                {entry.sanctioned && <span className="chip chip--danger">{tr('diplomacy.sanctioned')}</span>}
+                <span className="chip">
+                  {tr('diplomacy.trust')} {signed(Math.round(entry.trust))}
+                </span>
+                <span className="chip">
+                  {tr('diplomacy.threat')} {n(Math.round(entry.threat))}
+                </span>
+              </div>
+              <div className="diplomacy-row__actions">
+                {(entry.canMakePeace || entry.canDeclareWar) && (
+                  <button
+                    type="button"
+                    className={`btn btn--small ${entry.canMakePeace ? '' : 'btn--danger'}`}
+                    onClick={() => (entry.canMakePeace ? makePeace(entry.id) : declareWar(entry.id))}
+                  >
+                    {tr(entry.canMakePeace ? 'diplomacy.action.peace' : 'diplomacy.action.war')}
+                  </button>
+                )}
+                {!entry.atWar && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn--small"
+                      onClick={() => improveRelations(entry.id)}
+                    >
+                      {tr('diplomacy.action.improve')}
+                    </button>
+                    {!entry.ally && !entry.nonAggression && (
+                      <button
+                        type="button"
+                        className="btn btn--small"
+                        onClick={() => formNonAggression(entry.id)}
+                      >
+                        {tr('diplomacy.action.nonAggression')}
+                      </button>
+                    )}
+                    {entry.embargo ? (
+                      <button
+                        type="button"
+                        className="btn btn--small"
+                        onClick={() => liftEmbargo(entry.id)}
+                      >
+                        {tr('diplomacy.action.improve')}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn--small"
+                        onClick={() => imposeEmbargo(entry.id)}
+                      >
+                        {tr('diplomacy.action.embargo')}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           );
         })}

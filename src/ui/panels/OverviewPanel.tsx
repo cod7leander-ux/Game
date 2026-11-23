@@ -41,6 +41,14 @@ export function OverviewPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
           <dd>{decimal(country.industrialCapacity, 1)}</dd>
         </div>
         <div>
+          <dt>{tr('overview.regions')}</dt>
+          <dd>{n(country.regionCount)}</dd>
+        </div>
+        <div>
+          <dt>{tr('overview.objectives')}</dt>
+          <dd>{n(snapshot.objectives.filter((entry) => entry.status === 'active').length)}</dd>
+        </div>
+        <div>
           <dt>{tr('overview.income')}</dt>
           <dd className={country.netIncome >= 0 ? 'is-positive' : 'is-negative'}>
             {signed(Math.round(country.netIncome))} {tr('common.perDay')}
@@ -62,6 +70,20 @@ export function OverviewPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
             <span style={{ width: `${Math.round(snapshot.military.readiness * 100)}%` }} />
           </div>
           <em>{percent(snapshot.military.readiness)}</em>
+        </div>
+        <div className="meter-row">
+          <span>{tr('overview.unrest')}</span>
+          <div className="meter meter--amber">
+            <span style={{ width: `${Math.round(country.unrest * 100)}%` }} />
+          </div>
+          <em>{percent(country.unrest)}</em>
+        </div>
+        <div className="meter-row">
+          <span>{tr('overview.warExhaustion')}</span>
+          <div className="meter meter--red">
+            <span style={{ width: `${Math.round(country.warExhaustion * 100)}%` }} />
+          </div>
+          <em>{percent(country.warExhaustion)}</em>
         </div>
         <div className="meter-row">
           <span>{tr('research.current')}</span>

@@ -2,6 +2,7 @@ import { SimClock } from '../core/clock';
 import { GAME, type GameSpeed } from '../core/config';
 import { COUNTRY_BY_ID } from '../data/countries';
 import { getTech } from '../data/research';
+import { getProject } from '../data/production';
 import { getUnit } from '../data/units';
 import { translate } from '../i18n';
 import { formatGameDate, formatNumber, gameYear } from '../i18n/format';
@@ -52,6 +53,8 @@ export class GameSession {
   locale: LocaleCode;
   /** Tactical unit selected by the player (presentation state, not saved). */
   selectedUnitId: string | null = null;
+  /** Province inspected by the player (presentation state, not saved). */
+  selectedRegionId: string | null = null;
 
   private unsubscribe: () => void;
   private notifyCounter = 0;
@@ -185,6 +188,48 @@ export class GameSession {
 
   makePeace(targetId: string): boolean {
     return this.simulation.makePeace(this.world.playerCountryId, targetId);
+  }
+
+  /** Civilian construction in one of the player's regions. */
+  startConstruction(projectId: string, regionId: string): boolean {
+    return this.simulation.startConstruction(
+      this.world.playerCountryId,
+      projectId,
+      regionId,
+    );
+  }
+
+  /** Adjusts the national budget split between army, construction and research. */
+  setAllocation(allocation: { military: number; infrastructure: number; research: number }): boolean {
+    return this.simulation.setAllocation(this.world.playerCountryId, allocation);
+  }
+
+  improveRelations(targetId: string): boolean {
+    return this.simulation.improveRelations(this.world.playerCountryId, targetId);
+  }
+
+  formNonAggression(targetId: string): boolean {
+    return this.simulation.formNonAggression(this.world.playerCountryId, targetId);
+  }
+
+  grantMilitaryAccess(targetId: string): boolean {
+    return this.simulation.grantMilitaryAccess(this.world.playerCountryId, targetId);
+  }
+
+  imposeEmbargo(targetId: string): boolean {
+    return this.simulation.imposeEmbargo(this.world.playerCountryId, targetId);
+  }
+
+  liftEmbargo(targetId: string): boolean {
+    return this.simulation.liftEmbargo(this.world.playerCountryId, targetId);
+  }
+
+  formAlliance(targetId: string): boolean {
+    return this.simulation.formAlliance(this.world.playerCountryId, targetId);
+  }
+
+  breakAlliance(targetId: string): boolean {
+    return this.simulation.breakAlliance(this.world.playerCountryId, targetId);
   }
 
   playerCountry(): CountryState | undefined {
@@ -379,6 +424,32 @@ export class GameSession {
         });
         return;
       }
+      case 'constructionStart': {
+        if (event.countryId !== playerId) return;
+        const project = getProject(event.projectId);
+        if (!project) return;
+        this.pushNotification({
+          kind: 'production',
+          message: translate(locale, 'notify.constructionStart', {
+            project: localize(project.name, locale),
+          }),
+          severity: 'info',
+        });
+        return;
+      }
+      case 'constructionComplete': {
+        if (event.countryId !== playerId) return;
+        const project = getProject(event.projectId);
+        if (!project) return;
+        this.pushNotification({
+          kind: 'production',
+          message: translate(locale, 'notify.constructionDone', {
+            project: localize(project.name, locale),
+          }),
+          severity: 'success',
+        });
+        return;
+      }
       case 'battleResolved': {
         if (event.attackerId !== playerId && event.defenderId !== playerId) return;
         const won = event.attackerId === playerId ? event.attackerWon : !event.attackerWon;
@@ -452,6 +523,7 @@ export class GameSession {
       unread: this.unread,
       battle: this.simulation.playerBattle() ?? null,
       selectedUnitId: this.selectedUnitId,
+      selectedRegionId: this.selectedRegionId,
     });
   }
 

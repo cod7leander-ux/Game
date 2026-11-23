@@ -56,7 +56,12 @@ export function EconomyPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
                   {localize(RESOURCES[resource.id].description, locale)}
                 </span>
               </div>
-              <strong className="resource__value">{compact(resource.amount)}</strong>
+              <strong className="resource__value">
+                {compact(resource.amount)}
+                <em className={resource.flow >= 0 ? 'is-positive' : 'is-negative'}>
+                  {signed(Math.round(resource.flow * 10) / 10)}
+                </em>
+              </strong>
             </div>
           ))}
         </div>
@@ -74,6 +79,13 @@ export function EconomyPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
         <div>
           <dt>{tr('military.upkeep')}</dt>
           <dd>{decimal(snapshot.military.upkeep, 1)} {tr('common.perDay')}</dd>
+        </div>
+        <div>
+          <dt>{tr('production.allocation')}</dt>
+          <dd>
+            {percent(country.allocation.military)} / {percent(country.allocation.infrastructure)} /{' '}
+            {percent(country.allocation.research)}
+          </dd>
         </div>
       </dl>
 

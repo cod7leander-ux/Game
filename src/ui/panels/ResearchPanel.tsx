@@ -11,11 +11,19 @@ import { useI18n, type I18n } from '../hooks/useI18n';
 const BRANCH_KEY: Record<ResearchBranch, MessageKey> = {
   industry: 'research.branch.industry',
   energy: 'research.branch.energy',
+  infantry: 'research.branch.infantry',
   armor: 'research.branch.armor',
+  artillery: 'research.branch.artillery',
   aviation: 'research.branch.aviation',
+  helicopters: 'research.branch.helicopters',
+  drones: 'research.branch.drones',
   naval: 'research.branch.naval',
+  missiles: 'research.branch.missiles',
+  airDefence: 'research.branch.airDefence',
+  recon: 'research.branch.recon',
   electronics: 'research.branch.electronics',
   logistics: 'research.branch.logistics',
+  advanced: 'research.branch.advanced',
 };
 
 const EFFECT_KEY: Record<ResearchEffect['kind'], MessageKey> = {
@@ -26,6 +34,9 @@ const EFFECT_KEY: Record<ResearchEffect['kind'], MessageKey> = {
   attack: 'effect.attack',
   defence: 'effect.defence',
   manpower: 'effect.manpower',
+  supply: 'effect.supply',
+  detection: 'effect.detection',
+  resource: 'effect.resource',
   unlockUnit: 'effect.unlockUnit',
 };
 

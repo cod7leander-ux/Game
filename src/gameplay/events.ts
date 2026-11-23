@@ -9,6 +9,17 @@ export type SimEvent =
   | { type: 'allianceFormed'; aId: string; bId: string; day: number }
   | { type: 'tradeOpened'; aId: string; bId: string; day: number }
   | {
+      type: 'pactSigned';
+      aId: string;
+      bId: string;
+      kind: 'nonAggression' | 'militaryAccess';
+      day: number;
+    }
+  | { type: 'embargoImposed'; aId: string; bId: string; day: number }
+  | { type: 'constructionStart'; countryId: string; projectId: string; regionId: string; day: number }
+  | { type: 'constructionComplete'; countryId: string; projectId: string; regionId: string; day: number }
+  | { type: 'objectiveCompleted'; countryId: string; objectiveId: string; kind: string; day: number }
+  | {
       type: 'armyMarch';
       countryId: string;
       armyId: string;

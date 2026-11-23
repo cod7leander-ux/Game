@@ -3,11 +3,19 @@ import type { LocalizedText } from '../../i18n/types';
 export type ResearchBranch =
   | 'industry'
   | 'energy'
+  | 'infantry'
   | 'armor'
+  | 'artillery'
   | 'aviation'
+  | 'helicopters'
+  | 'drones'
   | 'naval'
+  | 'missiles'
+  | 'airDefence'
+  | 'recon'
   | 'electronics'
-  | 'logistics';
+  | 'logistics'
+  | 'advanced';
 
 export type ResearchEffectKind =
   | 'production'
@@ -17,6 +25,9 @@ export type ResearchEffectKind =
   | 'attack'
   | 'defence'
   | 'manpower'
+  | 'supply'
+  | 'detection'
+  | 'resource'
   | 'unlockUnit';
 
 export interface ResearchEffect {

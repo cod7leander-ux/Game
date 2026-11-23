@@ -303,7 +303,7 @@ assert(battles > 0 || (campaignPlayer.occupierId === null && campaign.world.get(
 log(`campaign ran 120 days: ${battles} battle(s)`);
 
 // ── Save version and migration ──────────────────────────────────────────────
-assert(CURRENT_SAVE_VERSION === 3, 'save schema is version 3');
+assert(CURRENT_SAVE_VERSION === 4, 'save schema is version 4');
 const payload = campaign.toSavePayload();
 const file = JSON.parse(
   JSON.stringify({ ...payload, slot: '1', version: CURRENT_SAVE_VERSION, updatedAt: Date.now() }),

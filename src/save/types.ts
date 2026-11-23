@@ -3,7 +3,7 @@ import type { CountryState, NotificationEntry } from '../gameplay/country/types'
 import type { SavedTacticalBattle } from '../gameplay/tactical/types';
 
 /** Bump when the saved shape changes; add a migration in migrations.ts. */
-export const CURRENT_SAVE_VERSION = 3;
+export const CURRENT_SAVE_VERSION = 4;
 
 export const SAVE_SLOT_IDS = ['auto', '1', '2', '3', '4', '5'] as const;
 export type SaveSlotId = (typeof SAVE_SLOT_IDS)[number];

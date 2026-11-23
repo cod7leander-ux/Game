@@ -3,6 +3,11 @@ import type { CountryState } from './country/types';
 import { recomputeModifiers } from './country/modifiers';
 import { DiplomacySystem } from './diplomacy/DiplomacySystem';
 import { EconomySystem } from './economy/EconomySystem';
+import { normalizeAllocation, type EconomyAllocation } from './economy/types';
+import { LogisticsSystem } from './logistics/LogisticsSystem';
+import { ProductionSystem } from './production/ProductionSystem';
+import { StabilitySystem } from './stability/StabilitySystem';
+import { pruneObjectives, reconcileObjectives } from './objectives/objectives';
 import { SimEventBus } from './events';
 import { syncMilitaryTotals } from './military/armies';
 import { ArmySystem, type MarchResult } from './military/ArmySystem';
@@ -16,12 +21,15 @@ import type { World } from './World';
  * The simulation facade: one day of world history.
  *
  * Tick order is fixed and documented because it is part of save determinism:
- *   1. economy (production, upkeep, stability, occupation tribute)
- *   2. research (programme progress)
- *   3. military (production queues, readiness)
- *   4. armies (marches resolve; battles and occupations happen here)
- *   5. diplomacy drift (weekly)
- *   6. AI decisions (staggered slice)
+ *   1. economy (regional production, upkeep, occupation tribute)
+ *   2. stability (war weariness, unrest, national morale)
+ *   3. research (programme progress)
+ *   4. production (civilian construction)
+ *   5. military (unit production queues, readiness)
+ *   6. armies (marches resolve; battles and occupations happen here)
+ *   7. logistics (supply and attrition)
+ *   8. diplomacy drift (weekly)
+ *   9. AI decisions (staggered slice)
  *
  * All mutations go through systems; no system reaches into another's state.
  */
@@ -35,6 +43,9 @@ export class Simulation {
   private readonly research: ResearchSystem;
   private readonly armies: ArmySystem;
   private readonly military: MilitarySystem;
+  private readonly production = new ProductionSystem(this.events);
+  private readonly logistics = new LogisticsSystem();
+  private readonly stability = new StabilitySystem();
   private readonly diplomacy: DiplomacySystem;
   private readonly ai: AIDirector;
   private readonly lowTreasuryWarned = new Set<string>();
@@ -58,7 +69,9 @@ export class Simulation {
 
     for (const country of this.world.countries.values()) {
       const result = this.economy.tick(country);
+      this.stability.tick(country, day);
       this.research.tick(country, day);
+      this.production.tick(country, day);
       this.military.tick(country, day);
       this.collectOccupationTribute(country);
 
@@ -73,10 +86,13 @@ export class Simulation {
     }
 
     this.armies.tick(this.world, day);
+    this.logistics.tick(this.world);
 
     if (day % 7 === 0) {
       for (const country of this.world.countries.values()) {
         this.diplomacy.drift(country, day);
+        reconcileObjectives(country);
+        pruneObjectives(country, day);
       }
     }
 
@@ -87,6 +103,16 @@ export class Simulation {
         this.marchArmy(countryId, armyId, targetId).ok,
       declareWar: (countryId, targetId) => this.declareWar(countryId, targetId),
       makePeace: (countryId, targetId) => this.makePeace(countryId, targetId),
+      queueConstruction: (countryId, projectId, regionId) =>
+        this.startConstruction(countryId, projectId, regionId),
+      setAllocation: (countryId, allocation) => this.setAllocation(countryId, allocation),
+      improveRelations: (countryId, targetId) => this.improveRelations(countryId, targetId),
+      formNonAggression: (countryId, targetId) =>
+        this.formNonAggression(countryId, targetId),
+      grantMilitaryAccess: (countryId, targetId) =>
+        this.grantMilitaryAccess(countryId, targetId),
+      imposeEmbargo: (countryId, targetId) => this.imposeEmbargo(countryId, targetId),
+      formAlliance: (countryId, targetId) => this.formAlliance(countryId, targetId),
     });
   }
 
@@ -161,17 +187,16 @@ export class Simulation {
     const defender = this.world.get(defenderId);
     if (!aggressor || !defender || aggressorId === defenderId) return false;
     if (aggressor.diplomacy.relations[defenderId]?.atWar) return false;
-    this.diplomacy.declareWar(aggressor, defender, this.world.day);
-    return true;
+    return this.diplomacy.declareWar(aggressor, defender, this.world.day);
   }
 
   makePeace(aId: string, bId: string): boolean {
     const a = this.world.get(aId);
     const b = this.world.get(bId);
     if (!a || !b) return false;
-    this.diplomacy.signPeace(a, b, this.world.day);
-    this.releaseOccupations(a.id, b.id);
-    return true;
+    const signed = this.diplomacy.signPeace(a, b, this.world.day);
+    if (signed) this.releaseOccupations(a.id, b.id);
+    return signed;
   }
 
   /** Peace returns occupied territory to its sovereign. */
@@ -192,16 +217,72 @@ export class Simulation {
     const a = this.world.get(aId);
     const b = this.world.get(bId);
     if (!a || !b) return false;
-    this.diplomacy.formAlliance(a, b, this.world.day);
-    return true;
+    return this.diplomacy.formAlliance(a, b, this.world.day);
   }
 
   openTrade(aId: string, bId: string): boolean {
     const a = this.world.get(aId);
     const b = this.world.get(bId);
     if (!a || !b) return false;
-    this.diplomacy.openTrade(a, b, this.world.day);
+    return this.diplomacy.openTrade(a, b, this.world.day);
+  }
+
+  /** Civilian construction through the shared production system. */
+  startConstruction(countryId: string, projectId: string, regionId: string): boolean {
+    const country = this.world.get(countryId);
+    if (!country) return false;
+    return this.production.enqueue(country, projectId, regionId, this.world.day).ok;
+  }
+
+  /** Budget allocation, normalised so the three shares always sum to one. */
+  setAllocation(countryId: string, allocation: EconomyAllocation): boolean {
+    const country = this.world.get(countryId);
+    if (!country) return false;
+    country.economy.allocation = normalizeAllocation(allocation);
     return true;
+  }
+
+  improveRelations(countryId: string, targetId: string): boolean {
+    const a = this.world.get(countryId);
+    const b = this.world.get(targetId);
+    if (!a || !b) return false;
+    return this.diplomacy.improveRelations(a, b, this.world.day);
+  }
+
+  formNonAggression(countryId: string, targetId: string): boolean {
+    const a = this.world.get(countryId);
+    const b = this.world.get(targetId);
+    if (!a || !b) return false;
+    return this.diplomacy.formNonAggression(a, b, this.world.day);
+  }
+
+  grantMilitaryAccess(countryId: string, targetId: string): boolean {
+    const a = this.world.get(countryId);
+    const b = this.world.get(targetId);
+    if (!a || !b) return false;
+    return this.diplomacy.grantMilitaryAccess(a, b, this.world.day);
+  }
+
+  imposeEmbargo(countryId: string, targetId: string): boolean {
+    const a = this.world.get(countryId);
+    const b = this.world.get(targetId);
+    if (!a || !b) return false;
+    return this.diplomacy.imposeEmbargo(a, b, this.world.day);
+  }
+
+  liftEmbargo(countryId: string, targetId: string): boolean {
+    const a = this.world.get(countryId);
+    const b = this.world.get(targetId);
+    if (!a || !b) return false;
+    this.diplomacy.liftEmbargo(a, b, this.world.day);
+    return true;
+  }
+
+  breakAlliance(countryId: string, targetId: string): boolean {
+    const a = this.world.get(countryId);
+    const b = this.world.get(targetId);
+    if (!a || !b) return false;
+    return this.diplomacy.breakAlliance(a, b, this.world.day);
   }
 
   /** Restores derived values after a load; never re-runs history. */

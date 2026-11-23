@@ -31,6 +31,12 @@ export interface Army {
   movement: ArmyMovement | null;
   /** Preferred battlefield formation; the tactical layer reads it on spawn. */
   formation: FormationType;
+  /** 0..1 supply level; low supply cuts readiness and causes attrition. */
+  supply: number;
+  /** Country that currently supplies this army (usually its homeland). */
+  supplySource: string | null;
+  /** Consecutive days below the supply threshold. */
+  daysLowSupply: number;
   createdDay: number;
   battlesWon: number;
 }
@@ -75,6 +81,9 @@ export const createArmy = (
   composition: { ...composition },
   movement: null,
   formation: 'line',
+  supply: 1,
+  supplySource: countryId,
+  daysLowSupply: 0,
   createdDay: day,
   battlesWon: 0,
 });
@@ -102,7 +111,12 @@ export const armyPower = (army: Army, country: CountryState): number => {
         unit.stats.health * 0.12) *
       count;
   }
-  return power * (0.55 + country.military.readiness * 0.55) * (1 + country.modifiers.attack * 0.35);
+  return (
+    power *
+    (0.55 + country.military.readiness * 0.55) *
+    (0.7 + army.supply * 0.3) *
+    (1 + country.modifiers.attack * 0.35)
+  );
 };
 
 export const armySpeed = (army: Army, country: CountryState): number => {

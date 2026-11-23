@@ -20,6 +20,7 @@ export function App() {
   const hoveredCountryId = useAppStore((state) => state.hoveredCountryId);
   const session = useAppStore((state) => state.session);
   const mapArmies = useAppStore((state) => state.snapshot?.mapArmies);
+  const mapRegions = useAppStore((state) => state.snapshot?.mapRegions);
   const mapUnits = useAppStore((state) => state.snapshot?.mapUnits);
   const battleUnits = useAppStore((state) => state.snapshot?.battleUnits);
   const projectiles = useAppStore((state) => state.snapshot?.battle?.projectiles);
@@ -74,6 +75,7 @@ export function App() {
         autoRotate={phase === 'menu' ? 0.035 : 0}
         labels={labels}
         armies={phase === 'game' ? mapArmies : undefined}
+        regions={phase === 'game' ? mapRegions : undefined}
         units={phase === 'game' ? units : undefined}
         projectiles={phase === 'game' ? projectiles : undefined}
         battleFocus={battleFocus}

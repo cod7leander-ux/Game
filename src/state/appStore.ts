@@ -16,7 +16,15 @@ import type { MessageKey } from '../i18n/locales/en';
  * world survives screen changes.
  */
 export type AppPhase = 'menu' | 'nation' | 'game';
-export type PanelTab = 'overview' | 'economy' | 'research' | 'military' | 'diplomacy';
+export type PanelTab =
+  | 'overview'
+  | 'economy'
+  | 'production'
+  | 'research'
+  | 'military'
+  | 'diplomacy'
+  | 'logistics'
+  | 'territory';
 export type DialogId = 'none' | 'save' | 'load' | 'settings' | 'pause' | 'leave';
 
 export interface CameraFocusRequest {
@@ -50,6 +58,7 @@ interface AppState {
   notificationsOpen: boolean;
   selectedCountryId: string | null;
   hoveredCountryId: string | null;
+  selectedRegionId: string | null;
   inspectedBrief: CountryBrief | null;
   session: GameSession | null;
   snapshot: PlayerSnapshot | null;
@@ -74,6 +83,7 @@ interface AppState {
   clearNotifications: () => void;
 
   selectCountry: (countryId: string | null, focusCamera?: boolean) => void;
+  selectRegion: (regionId: string | null) => void;
   hoverCountry: (countryId: string | null) => void;
   focusCountryCamera: (countryId: string) => void;
 
@@ -96,6 +106,15 @@ interface AppState {
   marchArmy: (armyId: string, targetId: string) => void;
   declareWar: (targetId: string) => void;
   makePeace: (targetId: string) => void;
+  startConstruction: (projectId: string, regionId: string) => void;
+  setAllocation: (allocation: { military: number; infrastructure: number; research: number }) => void;
+  improveRelations: (targetId: string) => void;
+  formNonAggression: (targetId: string) => void;
+  grantMilitaryAccess: (targetId: string) => void;
+  imposeEmbargo: (targetId: string) => void;
+  liftEmbargo: (targetId: string) => void;
+  formAlliance: (targetId: string) => void;
+  breakAlliance: (targetId: string) => void;
 
   focusBattleCamera: (lon: number, lat: number) => void;
   focusArmyCamera: (lon: number, lat: number) => void;
@@ -126,6 +145,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   notificationsOpen: false,
   selectedCountryId: null,
   hoveredCountryId: null,
+  selectedRegionId: null,
   inspectedBrief: null,
   session: null,
   snapshot: null,
@@ -209,6 +229,12 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
     set({ selectedCountryId: countryId, inspectedBrief: brief });
     if (focusCamera) get().focusCountryCamera(countryId);
+  },
+
+  selectRegion: (regionId) => {
+    const session = get().session;
+    if (session) session.selectedRegionId = regionId;
+    set({ selectedRegionId: regionId, snapshot: session?.snapshot() ?? null });
   },
 
   hoverCountry: (hoveredCountryId) => set({ hoveredCountryId }),
@@ -438,6 +464,88 @@ export const useAppStore = create<AppState>()((set, get) => ({
       return;
     }
     get().showToast(message('diplomacy.peaceMade'), 'success');
+    set({ snapshot: session.snapshot() });
+  },
+
+  startConstruction: (projectId, regionId) => {
+    const session = get().session;
+    if (!session) return;
+    if (!session.startConstruction(projectId, regionId)) {
+      get().showToast(message('production.failed'), 'warning');
+      return;
+    }
+    get().showToast(message('production.started'), 'success');
+    set({ snapshot: session.snapshot() });
+  },
+
+  setAllocation: (allocation) => {
+    const session = get().session;
+    if (!session) return;
+    session.setAllocation(allocation);
+    set({ snapshot: session.snapshot() });
+  },
+
+  improveRelations: (targetId) => {
+    const session = get().session;
+    if (!session?.improveRelations(targetId)) {
+      get().showToast(message('diplomacy.actionFailed'), 'warning');
+      return;
+    }
+    get().showToast(message('diplomacy.improved'), 'success');
+    set({ snapshot: session.snapshot() });
+  },
+
+  formNonAggression: (targetId) => {
+    const session = get().session;
+    if (!session?.formNonAggression(targetId)) {
+      get().showToast(message('diplomacy.actionFailed'), 'warning');
+      return;
+    }
+    get().showToast(message('diplomacy.pactSigned'), 'success');
+    set({ snapshot: session.snapshot() });
+  },
+
+  grantMilitaryAccess: (targetId) => {
+    const session = get().session;
+    if (!session?.grantMilitaryAccess(targetId)) {
+      get().showToast(message('diplomacy.actionFailed'), 'warning');
+      return;
+    }
+    get().showToast(message('diplomacy.accessGranted'), 'success');
+    set({ snapshot: session.snapshot() });
+  },
+
+  imposeEmbargo: (targetId) => {
+    const session = get().session;
+    if (!session?.imposeEmbargo(targetId)) {
+      get().showToast(message('diplomacy.actionFailed'), 'warning');
+      return;
+    }
+    get().showToast(message('diplomacy.embargoed'), 'warning');
+    set({ snapshot: session.snapshot() });
+  },
+
+  liftEmbargo: (targetId) => {
+    const session = get().session;
+    if (!session?.liftEmbargo(targetId)) return;
+    get().showToast(message('diplomacy.embargoLifted'), 'info');
+    set({ snapshot: session.snapshot() });
+  },
+
+  formAlliance: (targetId) => {
+    const session = get().session;
+    if (!session?.formAlliance(targetId)) {
+      get().showToast(message('diplomacy.actionFailed'), 'warning');
+      return;
+    }
+    get().showToast(message('diplomacy.allianceFormed'), 'success');
+    set({ snapshot: session.snapshot() });
+  },
+
+  breakAlliance: (targetId) => {
+    const session = get().session;
+    if (!session?.breakAlliance(targetId)) return;
+    get().showToast(message('diplomacy.allianceBroken'), 'warning');
     set({ snapshot: session.snapshot() });
   },
 

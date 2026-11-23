@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { GlobeRenderer } from '../../render/GlobeRenderer';
 import type { ArmyMarkerSpec } from '../../render/ArmyMarkers';
+import type { RegionMarkerSpec } from '../../render/RegionMarkers';
 import type { BattleProjectileView, UnitTokenView } from '../../game/types';
 import { resolveQuality, useSettingsStore } from '../../state/settingsStore';
 import { useAppStore } from '../../state/appStore';
@@ -21,6 +22,7 @@ interface WorldStageProps {
   autoRotate?: number;
   labels?: StageLabel[];
   armies?: ArmyMarkerSpec[];
+  regions?: RegionMarkerSpec[];
   units?: UnitTokenView[];
   projectiles?: BattleProjectileView[];
   onUnitClick?: (unitId: string | null) => void;
@@ -40,6 +42,7 @@ export function WorldStage({
   autoRotate = 0,
   labels = [],
   armies = [],
+  regions = [],
   units = [],
   projectiles = [],
   onUnitClick,
@@ -111,6 +114,10 @@ export function WorldStage({
   useEffect(() => {
     rendererRef.current?.setArmies(armies);
   }, [armies, status]);
+
+  useEffect(() => {
+    rendererRef.current?.setRegions(regions);
+  }, [regions, status]);
 
   useEffect(() => {
     rendererRef.current?.setUnits(units);

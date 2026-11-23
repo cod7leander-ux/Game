@@ -1,7 +1,7 @@
 {
   "name": "terra-dominion",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "Terra Dominion - an offline 3D grand-strategy / RTS of a living Earth.",
   "scripts": {

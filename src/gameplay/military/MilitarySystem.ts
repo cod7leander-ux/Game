@@ -81,7 +81,10 @@ export class MilitarySystem {
       return;
     }
 
-    const speed = 1 + country.modifiers.production * 0.6;
+    const speed =
+      (1 + country.modifiers.production * 0.6) *
+      // Military share of industry gates how fast unit lines run.
+      (0.55 + country.economy.allocation.military * 0.9);
     const completed: ProductionOrder[] = [];
 
     for (const order of country.military.queue) {

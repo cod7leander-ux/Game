@@ -5,7 +5,8 @@ import { PERSONALITIES, PERSONALITY_IDS } from '../../data/personalities';
 import { UNIT_LIST, getUnit } from '../../data/units';
 import type { AIPersonalityId } from '../ai/types';
 import { createArmy } from '../military/armies';
-import { createEmptyResources } from '../economy/types';
+import { createEmptyResources, DEFAULT_ALLOCATION } from '../economy/types';
+import { buildRegionStates } from '../regions/regions';
 import type { CountryDefinition, CountryState } from './types';
 
 /**
@@ -72,11 +73,12 @@ export const createCountryState = (
   const industrialCapacity = industrialBase(gdp) * rng.range(0.9, 1.1);
   const governmentId = pickGovernment(rng);
   const government = GOVERNMENTS.find((entry) => entry.id === governmentId) ?? GOVERNMENTS[0];
-  const personalityId = pickPersonality(rng, gdp, false);
+  const personalityId = pickPersonality(rng, gdp, options.isPlayer);
 
   const resources = createEmptyResources();
   resources.money = Math.round(gdp * 0.0009 + 40);
   resources.steel = Math.round(industrialCapacity * rng.range(14, 22));
+  resources.aluminum = Math.round(industrialCapacity * rng.range(5, 10));
   resources.oil = Math.round(industrialCapacity * rng.range(8, 14));
   resources.energy = Math.round(industrialCapacity * rng.range(10, 16));
   resources.electronics = Math.round(industrialCapacity * rng.range(4, 7));
@@ -90,6 +92,8 @@ export const createCountryState = (
   if (army >= 4) formations.art_towed = Math.max(1, Math.round(army * 0.2));
   if (army >= 6) formations.air_fighter = Math.max(1, Math.round(army * 0.08));
   if (army >= 10) formations.veh_apc = Math.max(1, Math.round(army * 0.12));
+
+  const regions = buildRegionStates(definition.id, population);
 
   let strengthIndex = 0;
   for (const [unitId, count] of Object.entries(formations)) {
@@ -114,6 +118,8 @@ export const createCountryState = (
       income: 0,
       expenses: 0,
       availableManpower: manpowerPool(population),
+      allocation: { ...DEFAULT_ALLOCATION },
+      resourceFlow: createEmptyResources(),
     },
     military: {
       armies: [createArmy(definition.id, 1, definition.id, formations, options.day)],
@@ -136,6 +142,9 @@ export const createCountryState = (
       wars: [],
       allies: [],
       tradePartners: [],
+      nonAggressionPartners: [],
+      militaryAccessPartners: [],
+      embargoed: [],
       influence: 0.5,
     },
     ai: {
@@ -146,8 +155,23 @@ export const createCountryState = (
       ambition: Math.min(1, Math.pow(gdp / 5_000_000, 0.35)),
       lastRationale: 'initial posture',
     },
+    regions,
+    capitalRegionId: regions[0]?.id ?? `${definition.id}-R1`,
+    warExhaustion: 0,
+    unrest: 0,
+    objectives: [],
+    production: { construction: [], completedProjects: 0 },
     occupierId: null,
-    modifiers: { production: 0, income: 0, research: 0, attack: 0, defence: 0 },
+    modifiers: {
+      production: 0,
+      income: 0,
+      research: 0,
+      attack: 0,
+      defence: 0,
+      supply: 0,
+      detection: 0,
+      resource: 0,
+    },
     lastAttackedDay: 0,
   };
 };

@@ -8,7 +8,16 @@ import type { CountryState } from './types';
  * doctrine. Nothing else may write to `country.modifiers`.
  */
 export const recomputeModifiers = (country: CountryState): void => {
-  const modifiers = { production: 0, income: 0, research: 0, attack: 0, defence: 0 };
+  const modifiers = {
+    production: 0,
+    income: 0,
+    research: 0,
+    attack: 0,
+    defence: 0,
+    supply: 0,
+    detection: 0,
+    resource: 0,
+  };
   const completed = new Set(country.research.completed);
 
   for (const tech of TECHNOLOGIES) {
@@ -29,6 +38,15 @@ export const recomputeModifiers = (country: CountryState): void => {
           break;
         case 'defence':
           modifiers.defence += effect.value;
+          break;
+        case 'supply':
+          modifiers.supply += effect.value;
+          break;
+        case 'detection':
+          modifiers.detection += effect.value;
+          break;
+        case 'resource':
+          modifiers.resource += effect.value;
           break;
         default:
           break;

@@ -22,7 +22,9 @@ export const researchOutput = (country: CountryState): number => {
     base *
     government.researchModifier *
     (1 + country.modifiers.research) *
-    (0.6 + country.stability * 0.4)
+    (0.6 + country.stability * 0.4) *
+    // Budget allocation matters: research share scales programme throughput.
+    (0.6 + country.economy.allocation.research * 2)
   );
 };
 
