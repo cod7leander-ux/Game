@@ -1,0 +1,60 @@
+/** Central tuning constants. Gameplay numbers live here or in data files — never inline. */
+
+export const GAME = {
+  /** Title and branding. */
+  title: 'Terra Dominion',
+  version: '0.1.0',
+  /** Bumped whenever the save payload shape changes. Migrations live in src/save/migrations.ts. */
+  saveVersion: 1,
+  /** World radius in scene units. All globe math is expressed as a fraction of this. */
+  globeRadius: 10,
+  /** Real milliseconds that make one in-game day at 1x speed. */
+  msPerDay: 1600,
+  /** Upper bound of days simulated in a single frame (protects slow devices). */
+  maxDaysPerFrame: 8,
+  /** Starting in-game date. */
+  startDate: { year: 2031, month: 1, day: 1 },
+  /**
+   * Default world seed. Fixed so the nation preview shown before a campaign
+   * matches the government, posture and army the player actually receives.
+   */
+  defaultSeed: 2031,
+  /** Countries are evaluated by AI on a staggered schedule to keep updates cheap. */
+  aiDecisionIntervalDays: 7,
+  /** Autosave cadence in in-game days. */
+  autosaveEveryDays: 90,
+  /** Maximum notifications kept in memory. */
+  notificationLimit: 60,
+} as const;
+
+export type GameSpeed = 0 | 1 | 2 | 4;
+
+export const SPEEDS: readonly GameSpeed[] = [0, 1, 2, 4];
+
+/** Camera altitude range, expressed as a multiplier of the globe radius above the surface. */
+export const CAMERA = {
+  minAltitude: 0.012,
+  maxAltitude: 6.2,
+  startAltitude: 3.15,
+  /** Altitude thresholds that switch the world view into a finer detail tier. */
+  detailTiers: {
+    global: 0.9,
+    country: 0.28,
+    region: 0.075,
+    city: 0.02,
+  },
+  damping: 9,
+  zoomSpeed: 0.0016,
+  rotateSpeed: 0.0042,
+  panSpeed: 0.0018,
+  minPolar: 0.08,
+  maxTilt: 1.32,
+} as const;
+
+export const QUALITY = {
+  high: { pixelRatio: 2, starCount: 5200, shadows: true },
+  balanced: { pixelRatio: 1.5, starCount: 3200, shadows: false },
+  low: { pixelRatio: 1, starCount: 1800, shadows: false },
+} as const;
+
+export type QualityPreset = keyof typeof QUALITY;

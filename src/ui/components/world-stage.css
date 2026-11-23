@@ -1,0 +1,141 @@
+.world-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(20, 38, 58, 0.55), transparent 62%),
+    linear-gradient(180deg, #04070c, #02040a 70%);
+}
+
+.world-stage__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+
+.world-stage__canvas:active {
+  cursor: grabbing;
+}
+
+.world-stage__vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 46%, transparent 42%, rgba(2, 4, 8, 0.55) 100%),
+    linear-gradient(180deg, rgba(2, 4, 8, 0.5), transparent 22%, transparent 74%, rgba(2, 4, 8, 0.72));
+}
+
+.world-stage__labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.stage-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 11px 6px;
+  border-radius: 8px;
+  background: rgba(6, 11, 17, 0.82);
+  border: 1px solid rgba(232, 180, 90, 0.28);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+  transition: opacity 160ms ease;
+  will-change: transform;
+}
+
+.stage-label::after {
+  content: '';
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-start: 50%;
+  width: 1px;
+  height: 12px;
+  background: linear-gradient(180deg, rgba(232, 180, 90, 0.7), transparent);
+}
+
+.stage-label__title {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--gold-bright);
+}
+
+.stage-label__subtitle {
+  font-size: 9.5px;
+  color: var(--text-dim, #94a4b6);
+  letter-spacing: 0.06em;
+}
+
+.stage-label--cyan {
+  border-color: rgba(127, 216, 255, 0.45);
+}
+
+.stage-label--cyan .stage-label__title {
+  color: var(--cyan);
+}
+
+.stage-label--green {
+  border-color: rgba(127, 230, 179, 0.4);
+}
+
+.stage-label--green .stage-label__title {
+  color: var(--green);
+}
+
+.world-stage__loader {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  background: radial-gradient(circle at 50% 45%, rgba(12, 22, 34, 0.9), rgba(3, 5, 9, 0.97));
+  z-index: 3;
+}
+
+.world-stage__spinner {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  border: 1px solid rgba(232, 180, 90, 0.18);
+  border-block-start-color: rgba(232, 180, 90, 0.9);
+  border-inline-end-color: rgba(232, 180, 90, 0.4);
+  animation: stage-spin 1100ms linear infinite;
+}
+
+@keyframes stage-spin {
+  to { transform: rotate(360deg); }
+}
+
+.world-stage__loading-text {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  text-align: center;
+  max-width: 340px;
+}
+
+.world-stage__loading-text strong {
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.world-stage__loading-text span {
+  font-size: 12px;
+  color: var(--mute);
+}
