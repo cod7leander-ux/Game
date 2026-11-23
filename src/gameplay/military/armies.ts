@@ -2,6 +2,7 @@ import { clamp } from '../../core/math';
 import { COUNTRY_BY_ID } from '../../data/countries';
 import { getUnit } from '../../data/units';
 import type { CountryState } from '../country/types';
+import type { FormationType } from '../tactical/types';
 import { recomputeStrength } from '../country/modifiers';
 
 /**
@@ -28,6 +29,8 @@ export interface Army {
   /** unitId → formations. */
   composition: Record<string, number>;
   movement: ArmyMovement | null;
+  /** Preferred battlefield formation; the tactical layer reads it on spawn. */
+  formation: FormationType;
   createdDay: number;
   battlesWon: number;
 }
@@ -71,6 +74,7 @@ export const createArmy = (
   locationId,
   composition: { ...composition },
   movement: null,
+  formation: 'line',
   createdDay: day,
   battlesWon: 0,
 });

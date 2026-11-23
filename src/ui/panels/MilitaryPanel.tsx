@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { COUNTRY_BY_ID } from '../../data/countries';
 import { RESOURCES } from '../../data/resources';
 import { TECHNOLOGIES } from '../../data/research';
 import { UNIT_LIST, getUnit } from '../../data/units';
@@ -22,6 +23,7 @@ export function MilitaryPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
   const { t: tr, locale, n, compact, percent, decimal } = useI18n();
   const queueUnit = useAppStore((state) => state.queueUnit);
   const marchArmy = useAppStore((state) => state.marchArmy);
+  const focusArmyCamera = useAppStore((state) => state.focusArmyCamera);
   const [domain, setDomain] = useState<UnitDomain>('ground');
   const completed = new Set(snapshot.research.completed);
   const stockpile = new Map(snapshot.resources.map((resource) => [resource.id, resource.amount]));
@@ -171,6 +173,16 @@ export function MilitaryPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
                   <div className="army-card__strength">
                     <span>{tr('military.strength')}</span>
                     <strong>{n(army.strength)}</strong>
+                    <button
+                      type="button"
+                      className="btn btn--small"
+                      onClick={() => {
+                        const anchor = COUNTRY_BY_ID[army.locationId];
+                        if (anchor) focusArmyCamera(anchor.label[0], anchor.label[1]);
+                      }}
+                    >
+                      {tr('military.focusArmy')}
+                    </button>
                   </div>
                 </header>
 

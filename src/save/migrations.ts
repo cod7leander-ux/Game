@@ -9,11 +9,13 @@ import { CURRENT_SAVE_VERSION, type SaveFile } from './types';
  */
 export type Migration = (file: Record<string, unknown>) => Record<string, unknown>;
 
+type LegacyArmy = Record<string, unknown> & { formation?: string };
+
 type LegacyCountry = {
   id?: string;
   occupierId?: string | null;
   military?: {
-    armies?: unknown[];
+    armies?: LegacyArmy[];
     formations?: Record<string, number>;
     manpowerCommitted?: number;
   };
@@ -31,9 +33,9 @@ export const MIGRATIONS: Record<number, Migration> = {
     const countries = (world.countries ?? []).map((country) => {
       const formations = country.military?.formations ?? {};
       const existing = country.military?.armies;
-      const armies =
+      const armies: LegacyArmy[] =
         Array.isArray(existing) && existing.length > 0
-          ? existing
+          ? (existing as LegacyArmy[])
           : [
               {
                 id: `${country.id}-A1`,
@@ -52,6 +54,31 @@ export const MIGRATIONS: Record<number, Migration> = {
       };
     });
     return { ...file, version: 2, world: { ...world, countries } };
+  },
+
+  /**
+   * v3 adds the tactical layer: every army gains a preferred formation and the
+   * save carries any battlefields that were in progress. Older campaigns load
+   * with no active battle.
+   */
+  2: (file) => {
+    const world = (file.world ?? {}) as { countries?: LegacyCountry[] };
+    const countries = (world.countries ?? []).map((country) => ({
+      ...country,
+      military: {
+        ...country.military,
+        armies: (country.military?.armies ?? []).map((army) => ({
+          ...army,
+          formation: army.formation ?? 'line',
+        })),
+      },
+    }));
+    return {
+      ...file,
+      version: 3,
+      world: { ...world, countries },
+      battlefields: Array.isArray(file.battlefields) ? file.battlefields : [],
+    };
   },
 };
 

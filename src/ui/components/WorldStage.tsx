@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { GlobeRenderer } from '../../render/GlobeRenderer';
 import type { ArmyMarkerSpec } from '../../render/ArmyMarkers';
+import type { BattleProjectileView, UnitTokenView } from '../../game/types';
 import { resolveQuality, useSettingsStore } from '../../state/settingsStore';
 import { useAppStore } from '../../state/appStore';
 import { useI18n } from '../hooks/useI18n';
@@ -20,6 +21,11 @@ interface WorldStageProps {
   autoRotate?: number;
   labels?: StageLabel[];
   armies?: ArmyMarkerSpec[];
+  units?: UnitTokenView[];
+  projectiles?: BattleProjectileView[];
+  onUnitClick?: (unitId: string | null) => void;
+  battleFocus?: { lon: number; lat: number; nonce: number } | null;
+  armyFocus?: { lon: number; lat: number; nonce: number } | null;
   className?: string;
 }
 
@@ -34,6 +40,11 @@ export function WorldStage({
   autoRotate = 0,
   labels = [],
   armies = [],
+  units = [],
+  projectiles = [],
+  onUnitClick,
+  battleFocus = null,
+  armyFocus = null,
   className,
 }: WorldStageProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -100,6 +111,24 @@ export function WorldStage({
   useEffect(() => {
     rendererRef.current?.setArmies(armies);
   }, [armies, status]);
+
+  useEffect(() => {
+    rendererRef.current?.setUnits(units);
+  }, [units, status]);
+
+  useEffect(() => {
+    rendererRef.current?.setProjectiles(projectiles);
+  }, [projectiles, status]);
+
+  useEffect(() => {
+    if (status !== 'ready' || !battleFocus) return;
+    rendererRef.current?.enterBattlefield(battleFocus.lon, battleFocus.lat);
+  }, [battleFocus, status]);
+
+  useEffect(() => {
+    if (status !== 'ready' || !armyFocus) return;
+    rendererRef.current?.frameArmy(armyFocus.lon, armyFocus.lat);
+  }, [armyFocus, status]);
 
   useEffect(() => {
     rendererRef.current?.setQuality(resolveQuality(graphics));
@@ -187,6 +216,12 @@ export function WorldStage({
       if (!dragging) return;
       dragging = false;
       if (moved < 6 && event.button === 0) {
+        // A unit always wins the pick over the country beneath it.
+        const unitId = rendererRef.current?.pickUnit(event.clientX, event.clientY) ?? null;
+        if (unitId && onUnitClick) {
+          onUnitClick(unitId);
+          return;
+        }
         const id = rendererRef.current?.pick(event.clientX, event.clientY) ?? null;
         selectCountry(id, false);
       }
@@ -218,7 +253,7 @@ export function WorldStage({
       canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('contextmenu', onContextMenu);
     };
-  }, [interactive, status, selectCountry, hoverCountry]);
+  }, [interactive, status, selectCountry, hoverCountry, onUnitClick]);
 
   // Keep DOM labels pinned to their geographic anchors.
   useEffect(() => {
@@ -243,7 +278,11 @@ export function WorldStage({
 
   return (
     <div ref={containerRef} className={`world-stage ${className ?? ''}`}>
-      <canvas ref={canvasRef} className="world-stage__canvas" aria-label="World map" />
+      <canvas
+        ref={canvasRef}
+        className="world-stage__canvas"
+        aria-label={t.t('map.canvas')}
+      />
       <div className="world-stage__vignette" aria-hidden="true" />
       {status === 'ready' && (
         <div className="world-stage__labels">

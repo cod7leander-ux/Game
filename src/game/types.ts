@@ -2,6 +2,8 @@ import type { GameSpeed } from '../core/config';
 import type { CityDefinition } from '../data/cities';
 import type { RelationStatus } from '../gameplay/diplomacy/types';
 import type { AIFocus } from '../gameplay/ai/types';
+import type { UnitArchetype } from '../gameplay/tactical/archetypes';
+import type { FormationType, UnitMotion, WeaponKind } from '../gameplay/tactical/types';
 import type { NotificationEntry, CountryState, CountryDefinition } from '../gameplay/country/types';
 import type { ResourceId } from '../gameplay/economy/types';
 
@@ -89,6 +91,84 @@ export interface ArmyMarkerView {
   tone: 'player' | 'enemy' | 'ally';
 }
 
+/**
+ * One 3D unit token. The renderer receives no gameplay objects, only this
+ * projection: a geographic anchor plus a local east/north/altitude offset in
+ * scene units, heading and presentation state.
+ */
+export interface UnitTokenView {
+  id: string;
+  unitId: string;
+  archetype: UnitArchetype;
+  lon: number;
+  lat: number;
+  offsetEast: number;
+  offsetNorth: number;
+  altitude: number;
+  heading: number;
+  tone: 'player' | 'enemy' | 'ally';
+  health: number;
+  selected: boolean;
+  selectable: boolean;
+  scale: number;
+}
+
+export interface BattleWeaponView {
+  name: string;
+  damage: number;
+  range: number;
+  cooldown: number;
+  ready: number;
+}
+
+export interface BattleUnitView {
+  id: string;
+  unitId: string;
+  name: string;
+  archetype: UnitArchetype;
+  countryId: string;
+  countryName: string;
+  side: 'player' | 'enemy';
+  health: number;
+  maxHealth: number;
+  healthRatio: number;
+  state: UnitMotion;
+  targetName: string | null;
+  formation: FormationType;
+  weight: number;
+  kills: number;
+  weapons: BattleWeaponView[];
+}
+
+export interface BattleProjectileView {
+  id: string;
+  kind: WeaponKind;
+  lon: number;
+  lat: number;
+  /** Local offsets already converted to scene units. */
+  offsetEast: number;
+  offsetNorth: number;
+  altitude: number;
+  friendly: boolean;
+}
+
+export interface BattleView {
+  id: string;
+  placeName: string;
+  lon: number;
+  lat: number;
+  day: number;
+  elapsed: number;
+  status: 'fighting' | 'finished';
+  winner: 'player' | 'enemy' | 'draw' | null;
+  playerCountryId: string;
+  formation: FormationType;
+  units: BattleUnitView[];
+  projectiles: BattleProjectileView[];
+  playerStrength: number;
+  enemyStrength: number;
+}
+
 export interface ResearchView {
   activeId: string | null;
   activeName: string | null;
@@ -136,6 +216,12 @@ export interface PlayerSnapshot {
   };
   armies: ArmyView[];
   mapArmies: ArmyMarkerView[];
+  /** Strategic army tokens rendered as 3D units on the globe. */
+  mapUnits: UnitTokenView[];
+  /** Active battlefield for the player, if any. */
+  battle: BattleView | null;
+  /** 3D tokens for the active battlefield. */
+  battleUnits: UnitTokenView[];
   resources: ResourceView[];
   research: ResearchView;
   military: {

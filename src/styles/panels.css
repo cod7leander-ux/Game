@@ -1209,3 +1209,221 @@
 .army-card__hint {
   font-size: 10.5px;
 }
+
+/* ── Tactical battle HUD ──────────────────────────────────────────────────── */
+
+.battle-hud {
+  position: absolute;
+  inset-block-end: 54px;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  width: min(640px, calc(100vw - 32px));
+  max-height: 56vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-panel);
+  z-index: 6;
+}
+
+.battle-hud[data-status='finished'] {
+  border-color: rgba(127, 230, 179, 0.45);
+}
+
+.battle-hud__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.battle-hud__header h3 {
+  margin: 2px 0 2px;
+  font-size: 17px;
+  letter-spacing: 0.01em;
+}
+
+.battle-hud__meta {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.battle-hud__strength {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.battle-hud__bar {
+  height: 6px;
+  border-radius: 99px;
+  background: rgba(229, 103, 95, 0.4);
+  overflow: hidden;
+}
+
+.battle-hud__bar > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--green), var(--cyan));
+}
+
+.battle-hud__orders {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.battle-hud__orders .btn[data-active='true'] {
+  border-color: var(--gold);
+  color: var(--gold-bright);
+}
+
+.battle-hud__label {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mute);
+  margin-inline-end: 2px;
+}
+
+.battle-hud__columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.battle-hud__units ul {
+  list-style: none;
+  margin: 4px 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.battle-unit {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  padding: 5px 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+}
+
+.battle-unit--enemy {
+  cursor: default;
+  border-color: rgba(229, 103, 95, 0.24);
+}
+
+.battle-unit.is-selected {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 1px rgba(127, 216, 255, 0.25) inset;
+}
+
+.battle-unit__name {
+  font-size: 12px;
+}
+
+.battle-unit__bar {
+  display: block;
+  height: 3px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.battle-unit__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--green);
+}
+
+.battle-unit--enemy .battle-unit__bar > span {
+  background: var(--red);
+}
+
+.battle-unit__meta {
+  font-size: 9px;
+  color: var(--mute);
+  letter-spacing: 0.04em;
+}
+
+.battle-hud__detail h4 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.battle-detail {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+  margin: 0 0 8px;
+}
+
+.battle-detail div {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+  border-block-end: 1px solid var(--line-soft);
+  padding-block-end: 2px;
+}
+
+.battle-detail dt {
+  color: var(--mute);
+}
+
+.battle-detail dd {
+  margin: 0;
+  color: var(--text);
+}
+
+.battle-weapons {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-block-end: 8px;
+}
+
+.battle-weapon {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+}
+
+.battle-weapon em {
+  font-style: normal;
+  font-size: 9px;
+  color: var(--mute);
+}
+
+@media (max-width: 720px) {
+  .battle-hud {
+    inset-block-end: 12px;
+    max-height: 66vh;
+  }
+
+  .battle-hud__columns {
+    grid-template-columns: 1fr;
+  }
+}

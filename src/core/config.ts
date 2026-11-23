@@ -3,9 +3,9 @@
 export const GAME = {
   /** Title and branding. */
   title: 'Terra Dominion',
-  version: '0.2.0',
+  version: '0.3.0',
   /** Bumped whenever the save payload shape changes. Migrations live in src/save/migrations.ts. */
-  saveVersion: 2,
+  saveVersion: 3,
   /** World radius in scene units. All globe math is expressed as a fraction of this. */
   globeRadius: 10,
   /** Real milliseconds that make one in-game day at 1x speed. */
@@ -58,3 +58,22 @@ export const QUALITY = {
 } as const;
 
 export type QualityPreset = keyof typeof QUALITY;
+
+/**
+ * Tactical layer presentation constants.
+ *
+ * Battlefields are simulated in metres; the globe is drawn in scene units where
+ * the planet radius is 10. VISUAL_SCALE converts battlefield metres into scene
+ * units (a 6 km battlefield is ~0.7 units across, readable at region zoom).
+ */
+export const TACTICAL = {
+  /** Scene units per battlefield metre. */
+  visualScale: 0.00012,
+  /** Camera altitude used when entering a battlefield (fraction of globe radius). */
+  battleAltitude: 0.055,
+  /** Strategic army tokens are drawn slightly larger than battle tokens. */
+  mapTokenScale: 1.45,
+  battleTokenScale: 1,
+  /** Maximum army tokens drawn on the strategic map per army. */
+  mapTokensPerArmy: 4,
+} as const;

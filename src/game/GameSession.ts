@@ -11,6 +11,7 @@ import type { CountryState, NotificationEntry } from '../gameplay/country/types'
 import { Simulation } from '../gameplay/Simulation';
 import type { SimEvent } from '../gameplay/events';
 import type { MarchResult } from '../gameplay/military/ArmySystem';
+import type { FormationType } from '../gameplay/tactical/types';
 import { World } from '../gameplay/World';
 import type { MessageKey } from '../i18n/locales/en';
 import type { SaveFile } from '../save/types';
@@ -49,6 +50,8 @@ export class GameSession {
   readonly difficulty: CampaignDifficulty;
   unread = 0;
   locale: LocaleCode;
+  /** Tactical unit selected by the player (presentation state, not saved). */
+  selectedUnitId: string | null = null;
 
   private unsubscribe: () => void;
   private notifyCounter = 0;
@@ -117,6 +120,7 @@ export class GameSession {
       file.createdAt ?? Date.now(),
     );
     Simulation.rehydrate(world);
+    session.simulation.restoreBattlefields(file.battlefields);
     session.notifications.push(...(file.notifications ?? []).slice(-GAME.notificationLimit));
     session.unread = 0;
     session.lastAutosaveDay = clock.day;
@@ -130,6 +134,10 @@ export class GameSession {
     const steps = this.clock.advance(deltaMs);
     for (let index = 0; index < steps; index += 1) {
       this.simulation.tickDay(startDay + index + 1);
+    }
+    // Battles run in real time and pause with the campaign clock.
+    if (!this.clock.isPaused) {
+      this.simulation.advanceRealtime(Math.min(250, Math.max(0, deltaMs)) / 1000);
     }
     if (this.clock.day - this.lastAutosaveDay >= GAME.autosaveEveryDays) {
       this.lastAutosaveDay = this.clock.day;
@@ -181,6 +189,83 @@ export class GameSession {
 
   playerCountry(): CountryState | undefined {
     return this.world.player;
+  }
+
+  // ── Tactical layer ─────────────────────────────────────────────────────────
+
+  selectUnit(unitId: string | null): void {
+    if (!unitId) {
+      this.selectedUnitId = null;
+      return;
+    }
+    const battle = this.simulation.playerBattle();
+    const unit = battle?.getUnit(unitId);
+    this.selectedUnitId = unit && unit.state !== 'destroyed' ? unitId : null;
+  }
+
+  setBattleFormation(formation: FormationType): boolean {
+    return this.simulation.issueBattleCommand({
+      kind: 'formation',
+      countryId: this.world.playerCountryId,
+      formation,
+    });
+  }
+
+  battleAdvance(): boolean {
+    return this.simulation.issueBattleCommand({
+      kind: 'advance',
+      countryId: this.world.playerCountryId,
+    });
+  }
+
+  battleHold(): boolean {
+    return this.simulation.issueBattleCommand({
+      kind: 'hold-line',
+      countryId: this.world.playerCountryId,
+    });
+  }
+
+  battleWithdraw(): boolean {
+    return this.simulation.issueBattleCommand({
+      kind: 'withdraw',
+      countryId: this.world.playerCountryId,
+    });
+  }
+
+  battleOrderSelected(x: number, z: number): boolean {
+    const unitId = this.selectedUnitId;
+    if (!unitId) return false;
+    return this.simulation.issueBattleCommand({ kind: 'move', unitId, x, z });
+  }
+
+  battleHoldSelected(): boolean {
+    const unitId = this.selectedUnitId;
+    if (!unitId) return false;
+    return this.simulation.issueBattleCommand({ kind: 'hold', unitId });
+  }
+
+  /** Sends the selected unit against the nearest living enemy. */
+  battleAttackNearest(): boolean {
+    const battle = this.simulation.playerBattle();
+    const unitId = this.selectedUnitId;
+    if (!battle || !unitId) return false;
+    const unit = battle.getUnit(unitId);
+    if (!unit) return false;
+    const target = battle
+      .livingUnits()
+      .filter((entry) => entry.side !== unit.side)
+      .sort((a, b) => {
+        const da = Math.hypot(a.position.x - unit.position.x, a.position.z - unit.position.z);
+        const db = Math.hypot(b.position.x - unit.position.x, b.position.z - unit.position.z);
+        return da - db;
+      })[0];
+    if (!target) return false;
+    return this.simulation.issueBattleCommand({ kind: 'attack', unitId, targetId: target.id });
+  }
+
+  dismissBattle(): void {
+    this.simulation.dismissBattle();
+    this.selectedUnitId = null;
   }
 
   // ── Notifications ───────────────────────────────────────────────────────────
@@ -365,6 +450,8 @@ export class GameSession {
       dayProgress: this.clock.dayProgress,
       notifications: this.notifications,
       unread: this.unread,
+      battle: this.simulation.playerBattle() ?? null,
+      selectedUnitId: this.selectedUnitId,
     });
   }
 
@@ -402,6 +489,7 @@ export class GameSession {
         progress: this.clock.dayProgress,
       },
       notifications: this.notifications.slice(-GAME.notificationLimit),
+      battlefields: this.simulation.battlefields.toSave(),
     };
   }
 

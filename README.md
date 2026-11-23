@@ -2,7 +2,7 @@
 
 An original, offline 3D grand-strategy / real-time strategy game: you take command of one nation on a living Earth while every other country is run by AI. Inspired by the strategic scale of classic world-map RTS games, with its own world, rules, art direction and interface.
 
-**Status: Milestone 2 complete** — a playable 3D Earth, nation selection with dossiers, an offline campaign loop (economy, research, production, diplomacy, AI), persistent field armies that march across the globe, battles, territorial occupation, player-issued war and peace, and a versioned local save system in English and Persian.
+**Status: Milestone 3 complete** — the Milestone 2 campaign now sits on a scalable tactical military foundation: data-driven unit definitions and weapons, individual 3D units on the globe, ground and air movement, line/column/wedge formations, detection and targeting, real-time damage and destruction, placeholder projectiles, a battlefield mode layered over the strategic battle resolution, tactical selection and command UI, and save schema v3 — all in English and Persian.
 
 ---
 
@@ -26,8 +26,9 @@ The gameplay layer has no dependency on Three.js or React. It can be simulated h
 ```
 src/
   core/           config (all tuning), math, seeded RNG, EventBus, Simulation clock
-  data/           content catalogs: countries, cities, units, research, governments,
-                  personalities, resources  (data only, no logic)
+  data/           content catalogs: countries, cities, units, tactical profiles,
+                  weapons, research, governments, personalities, resources
+                  (data only, no logic)
   gameplay/       the simulation — engine-agnostic
     World.ts        country registry, adjacency, seeded starting diplomacy
     Simulation.ts   deterministic day tick order
@@ -35,11 +36,15 @@ src/
     economy/        income, resources, stability
     research/       tech progress and effects
     military/       armies, strategic movement, battles, production, upkeep
+    tactical/       battlefield engine: units, formations, targeting, weapons,
+                    projectiles, spatial grid, tactical AI, strategic bridge
     diplomacy/      relations, wars, alliances, trade (weekly tick)
     ai/             AI director + utility evaluators
     events.ts       typed simulation event union
   game/           campaign facade (GameSession), snapshots, nation preview
   render/         Three.js globe, camera rig, geometry builder, army markers, palette
+    units/          instanced 3D unit layer + procedural placeholder geometry
+    assets/         asset manifest/resolver (placeholder now, GLB models later)
   state/          zustand stores (app phase/session, persisted settings)
   i18n/           typed EN/FA catalogs, locale definitions, Intl formatters
   save/           versioned save schema, migrations, IndexedDB/localStorage
@@ -81,7 +86,48 @@ Nation previews use the same factory as a live campaign with the fixed default s
 
 ## Unit architecture
 
-Units are pure data (`data/units.ts`): domain, tier, stats (attack, defence, range, speed, detection), costs, build time, upkeep, manpower, required techs, and a `visual` block (variant, silhouette, palette) that the future model pipeline reads. The combat/movement engine will consume the same definitions; adding a unit is a data entry plus an optional model reference. 34 units ship across ground, air, naval and support, including locked tiers that open through research.
+Units are pure data (`data/units.ts`): domain, tier, stats (attack, defence, range, speed, detection), costs, build time, upkeep, manpower, required techs, and a `visual` block (variant, silhouette, palette). 34 units ship across ground, air, naval and support, including locked tiers that open through research.
+
+The tactical layer adds two more data catalogs and **no per-unit code**:
+
+- **`data/tacticalProfiles.ts`** — how a unit behaves on a battlefield: movement layer (ground/air), cruise altitude, footprint, tactical speed, turn rate, sensor range, standoff, formation spacing and the weapon ids it carries. Profiles are derived from the strategic definition by role and overridden only where the battlefield needs it (the six placeholder units have explicit overrides).
+- **`data/weapons.ts`** — weapon definitions: damage, range, accuracy, cooldown, projectile speed/kind, target layers, armour penetration, splash radius, ammunition and burst. One resolver drives every weapon, so machine guns, cannons, artillery, rockets, air-to-air/air-to-ground missiles, SAMs and cruise missiles share the same code path.
+
+Adding a unit therefore means: a strategic entry, an optional tactical profile, and an asset id. Combat, AI, economy, country logic and saves do not change.
+
+The Milestone 3 placeholder roster — rifle infantry, main battle tank, towed artillery, air-superiority fighter, attack helicopter and recon drone — is fully functional. Their visuals are deliberately crude procedural silhouettes; see the asset pipeline below.
+
+## Tactical military layer
+
+`src/gameplay/tactical` is a separate, engine-agnostic real-time layer beneath the strategic map:
+
+- **Tactical units** are spawned from an army's composition. A token represents a share of formations (weight), so a 40-formation army is represented by at most 12 tokens instead of 40 objects — the same pattern that will scale to thousands of units.
+- **Movement** is positional, not country-to-country: units drive toward waypoints or targets, rotate at a data-driven turn rate, slow while turning, stop on arrival, hold, resume, and stay inside the battlefield footprint. Air units cruise at altitude (fighters ~2 400 m, helicopters ~230 m, drones ~1 400 m) and use their own speeds and turn rates; ground units stay on the surface.
+- **Formations** (`formations.ts`) generate line, column and wedge slots in a local frame; a formation can wheel by rotating its slots, and each side's anchors are re-laid without rebuilding the layout. Adding formation types is one generator function.
+- **Detection and targeting** use a uniform spatial hash rebuilt per step, so each unit queries a few nearby cells rather than the whole battle. Acquisition filters by sensor range *and* by whether the unit carries a weapon that can engage the target's layer — fighters cannot shoot infantry, and infantry cannot shoot aircraft. Targets are re-evaluated on an interval and dropped when destroyed or out of range.
+- **Combat** runs on a fixed 100 ms step: weapon cooldowns, accuracy rolls, armour mitigation with penetration, burst fire, projectile flight (ballistic, rocket or homing missile), splash damage with falloff, health, kills and destruction. Different archetypes behave differently purely through their data.
+- **AI command** (`TacticalCommander`) controls every non-player side using the same public orders as the player: advance the formation, hold, withdraw when badly damaged, and focus fire. It is intentionally small — the foundation for a deeper battlefield AI rather than a scripted opponent.
+- **Determinism and scale**: seeded RNG, fixed steps, reused buffers, bounded token/projectile counts and instanced rendering. No per-unit allocations in the hot loop and no per-unit render objects.
+
+## Battlefields, camera and the strategic link
+
+The strategic layer stays authoritative. `ArmySystem` still resolves each engagement with `resolveBattle`, but now publishes both sides' **pre-battle rosters** with the `battleResolved` event. `BattlefieldManager` opens a 3D battlefield when the player is involved (AI-only wars stay abstract so a world war does not spawn hundreds of scenes), and the tactical battle is advanced in real time while the campaign clock is running.
+
+Casualties are reconciled, not contradicted: the strategic result supplies the winner and the formations lost, and the tactical battle enforces that quota if its own combat has not already destroyed those tokens. The player can watch and command the engagement, but the campaign outcome is the one the simulation recorded.
+
+The camera remains one continuous rig (no controller swap): global → country (`frameCountry`) → army (`frameArmy`) → battlefield (`enterBattlefield`), with pan, rotate, zoom and a return to the strategic view. Entering a battle simply flies the same orbit camera to region altitude over the battlefield anchor.
+
+Selection works in 3D: unit tokens are raycast through the instanced layer, selected units get a ring plus a highlighted tint, and the tactical HUD shows name, category, faction, health, strength, movement state, current target, kills and weapon status — every string localised in English and Persian. Orders are formation (line/column/wedge), advance, hold, withdraw, attack nearest and hold position.
+
+## Performance model
+
+The tactical layer is built for the eventual thousands-of-units target without over-engineering today:
+
+- **Instancing**: one `InstancedMesh` per archetype draws every unit; projectiles are a single instanced mesh; army markers and country geometry stay batched.
+- **Spatial partitioning**: a uniform grid answers detection and splash queries from nearby cells only.
+- **Fixed-step, batched updates**: one pass per battle step over the unit array, no per-unit timers or scenes.
+- **Bounded work**: at most 12 tokens per side, 3 active player battlefields, one spatial rebuild per step, distance-based target intervals.
+- **Level of detail ready**: tokens are already projections; a future LOD stage can swap archetype geometry or cull by camera altitude without touching gameplay.
 
 ## Armies, battles and occupation
 
@@ -106,16 +152,40 @@ Typed catalogs (`src/i18n/locales/en.ts`, `fa.ts`) keyed by `MessageKey`, so a m
 
 ## Save architecture
 
-`SaveFile` is versioned (`CURRENT_SAVE_VERSION = 2`, migration chain in `save/migrations.ts`). A save contains campaign metadata, the full world (every country's state, armies and marches, occupation, AI memory, queues, relations), clock, notifications and seed. The v1 → v2 migration gives every country a field army built from its old aggregate formations and an explicit `occupierId`, so Milestone 1 campaigns keep loading. Storage is IndexedDB with a localStorage fallback, six slots (`auto`, 1–5), plus JSON import/export. Saves are schema-validated on load; incompatible or corrupt files surface a localized error instead of breaking the app.
+`SaveFile` is versioned (`CURRENT_SAVE_VERSION = 3`, migration chain in `save/migrations.ts`). A save contains campaign metadata, the full world (every country's state, armies and marches, occupation, army formations, AI memory, queues, relations), clock, notifications, seed and any active **battlefields** — including tactical unit positions, altitude, heading, health, formation, targets, cooldowns, casualties and team assignment.
+
+Migrations keep old campaigns loading:
+
+- **v1 → v2** gives every country a field army built from its old aggregate formations and an explicit `occupierId`.
+- **v2 → v3** gives every army a default formation and adds the battlefield list.
+
+Storage is IndexedDB with a localStorage fallback, six slots (`auto`, 1–5), plus JSON import/export. Saves are schema-validated on load; incompatible or corrupt files surface a localized error instead of breaking the app.
 
 ## Asset and reference-image pipeline
 
-Gameplay is completely decoupled from visuals. A unit's `visual` descriptor is the seam: `{ variant, silhouette, palette }` today, a model id / GLB reference tomorrow. The planned pipeline:
+Gameplay is completely decoupled from visuals. Every tactical profile carries an `assetId` (`unit.<id>.v1`), and `render/assets/unitAssets.ts` resolves it to a `UnitAsset`: archetype, model id/URL, material id, scale, VFX id and audio id. Until real models exist, an unregistered asset resolves to a procedural placeholder silhouette — the game never depends on a specific placeholder model.
 
-1. Reference image provided for a unit, building, UI element or environment.
-2. The silhouette, proportions, materials and design language are extracted into a model brief (not a generic substitute).
-3. A GLB (with PBR materials) is produced and registered in the asset manifest under the unit's `visual.model` id.
-4. The renderer instantiates it through the same instanced unit layer; gameplay data and combat stats are untouched.
+Replacing a placeholder is therefore a registration, not a refactor:
+
+```ts
+registerUnitAsset({
+  assetId: 'unit.air_fighter.v1',
+  archetype: 'aircraft',
+  modelId: 'fighter-v2',
+  modelUrl: '/models/fighter-v2.glb',
+  materialId: 'fighter-pbr',
+  scale: 1,
+  vfxId: 'vfx.jet.exhaust',
+  audioId: 'audio.jet.pass',
+});
+```
+
+Intended workflow for future reference images:
+
+1. A reference image is provided for a unit, building, UI element or environment.
+2. Silhouette, proportions, materials and design language are extracted into a model brief (not a generic substitute).
+3. A GLB with PBR materials is produced and registered under the existing `assetId`.
+4. The instanced unit layer draws it through the same projection; combat, AI, economy, country logic and saves are untouched.
 
 Quality tiers control model LOD, material complexity and effects, so visual upgrades never require gameplay changes.
 
@@ -126,26 +196,36 @@ npm install
 npm run dev       # http://localhost:5173
 npm run build     # typecheck + production bundle
 npm run preview   # serve the production build
-npm test          # headless campaign/army/battle/save/migration smoke test
+npm test          # headless campaign + tactical layer suites (battles, weapons, saves)
 ```
 
-GitHub Actions runs the same typecheck, production build and smoke test on every push and pull request (`.github/workflows/ci.yml`).
+The headless suites run the real simulation and tactical engine in Node, without a browser:
+
+- `scripts/sim-smoke.ts` — campaign, armies, war, battles, occupation, save round-trip, v1 migration.
+- `scripts/tactical-smoke.ts` — token creation, formations, movement/rotation/stopping, layer-aware targeting, weapon cooldowns, damage and destruction, projectile simulation, strategic→tactical bridge, battlefield persistence, team assignment and the v2 → v3 migration.
+
+GitHub Actions runs the same typecheck, production build and test suites on every push and pull request (`.github/workflows/ci.yml`).
 
 ## Milestone roadmap
 
 1. **Done** — foundation, 3D Earth, camera ladder, nation selection and dossiers, campaign shell, economy/research/military/diplomacy/AI simulation, save/load, EN + FA.
 2. **Done** — field armies on the globe, strategic movement between neighbours, 3D army markers, deterministic battles, territorial occupation and liberation, AI army command, player war/peace actions, save schema v2, CI.
-3. Country and region depth: region-level territory, trade routes, AI budgeting, world events.
-4. Battlefield layer: first fighter/tank/infantry/drone models and tactical combat.
-5. Advanced AI, peace deals with terms, alliances that fight together on the map.
-6. Production-quality assets, PBR materials, effects, audio, advanced UI, optimization pass.
+3. **Done** — tactical military foundation: data-driven units and weapons, 3D units on the globe, ground/air movement, formations, detection, targeting, real-time combat, placeholder projectiles, battlefield mode, tactical selection and command UI, save v3.
+4. Country and region depth: region-level territory, trade routes, AI budgeting, world events.
+5. Final unit models from reference images, PBR materials, VFX and audio for the tactical layer; unit LOD and battlefield streaming.
+6. Advanced AI, peace deals with terms, alliances that fight together on the map, deeper battlefield AI.
 7. Content expansion to hundreds of units and a deeper world simulation.
 
-## Known limitations (Milestone 2)
+## Known limitations (Milestone 3)
 
-- Movement is one hop at a time between adjacent countries; the adjacency graph is derived from label proximity, not exact border geometry, and there is no multi-hop pathfinding yet.
-- Armies are country-level stacks. Region-level territory, battlefields and individual 3D unit models (tank, fighter, infantry, drone) arrive in later milestones; the current map markers are army symbols, not unit models.
+- Strategic movement is still one hop at a time between adjacent countries; adjacency comes from label proximity, not border geometry, and there is no multi-hop pathfinding.
+- Tactical battles **represent** an engagement the strategic layer already resolved. The winner and the formation losses are authoritative; tactical combat reconciles to that quota rather than feeding a new result back. A battle also runs in real time while campaign days advance.
+- Only engagements involving the player spawn a 3D battlefield. AI-vs-AI wars remain abstract, though the AI commands its side in any battlefield it fights.
+- Battlefields are anchored at a country's label on the globe and units stand on the sphere surface; there is no terrain height sampling, cover or terrain modifier yet, and no obstacle pathfinding or collision avoidance (formations are direct slots, so units can overlap).
+- Visuals are placeholders: one procedural silhouette per archetype, no skeletal/prop animation, tracer trails, impact VFX or audio. Projectiles are instanced spheres.
+- Targeting uses range, sensor radius and target layers. Stealth, electronic warfare, line-of-sight and terrain masking are represented in data but not yet applied. Weapon ammunition is in the schema but treated as unlimited for this era.
+- Battlefields are capped at 12 tokens per side and 3 active player battles. The data structures are instancing/spatial-partition ready, but the caps keep the current build responsive.
 - Occupation is whole-country and ends on liberation or peace; there are no separate peace terms, war score or annexation.
 - The world surface is a single merged mesh; region-level geometry arrives with a later milestone.
-- No audio yet.
+- The tactical HUD and 3D unit rendering were verified through the headless suites (typecheck, build, simulation tests), not by clicking through a browser in this milestone.
 - The cloud preview VM renders with a software rasteriser (SwiftShader); the game detects that and selects the low preset, but frame rate there is far below what a hardware GPU delivers.

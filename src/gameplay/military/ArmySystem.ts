@@ -147,6 +147,20 @@ export class ArmySystem {
     day: number,
   ): void {
     const rng = new Rng((hashString(`${target.id}:${attackerArmy.id}`) ^ (day * 2654435761)) >>> 0);
+    // Capture the pre-battle order of battle so the tactical layer can
+    // represent exactly the formations that fought, not the survivors.
+    const sides = [
+      {
+        countryId: attackerCountry.id,
+        armyId: attackerArmy.id,
+        roster: { ...attackerArmy.composition },
+      },
+      ...defenders.map((side) => ({
+        countryId: side.country.id,
+        armyId: side.army.id,
+        roster: { ...side.army.composition },
+      })),
+    ];
     const result = resolveBattle(rng, { army: attackerArmy, country: attackerCountry }, defenders);
 
     // Surviving defenders fall back to their homeland, or are destroyed when
@@ -171,6 +185,7 @@ export class ArmySystem {
       attackerLosses: result.attackerLosses,
       defenderLosses: result.defenderLosses,
       day,
+      sides,
     });
 
     if (result.attackerWon) {

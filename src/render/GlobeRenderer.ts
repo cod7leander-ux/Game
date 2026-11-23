@@ -28,13 +28,16 @@ import {
   SRGBColorSpace,
   ACESFilmicToneMapping,
 } from 'three';
-import { GAME, QUALITY, type QualityPreset } from '../core/config';
+import { CAMERA, GAME, QUALITY, TACTICAL, type QualityPreset } from '../core/config';
 import { clamp } from '../core/math';
 import { COUNTRY_BY_ID } from '../data/countries';
 import { CITIES } from '../data/cities';
 import { buildGlobeGeometry, type GlobeGeometry } from './globeGeography';
 import { CameraRig } from './CameraRig';
 import { ArmyMarkers, type ArmyMarkerSpec } from './ArmyMarkers';
+import { UnitLayer } from './units/UnitLayer';
+import { ProjectileLayer } from './ProjectileLayer';
+import type { BattleProjectileView, UnitTokenView } from '../game/types';
 import { PALETTE } from './theme';
 
 /**
@@ -76,6 +79,8 @@ export class GlobeRenderer {
   private readonly cityPoints: Points;
   private readonly stars: Points;
   private readonly armyMarkers = new ArmyMarkers();
+  private readonly unitLayer = new UnitLayer();
+  private readonly projectileLayer = new ProjectileLayer();
   private readonly raycaster = new Raycaster();
   private readonly pointerNdc = new Vector2();
   private readonly detailUniform = { value: 0 };
@@ -184,6 +189,8 @@ export class GlobeRenderer {
     this.scene.add(this.cityPoints);
 
     this.scene.add(this.armyMarkers.object);
+    this.scene.add(this.unitLayer.object);
+    this.scene.add(this.projectileLayer.object);
 
     this.rig.update(1);
   }
@@ -349,6 +356,29 @@ export class GlobeRenderer {
     this.armyMarkers.setArmies(markers);
   }
 
+  /** Projects every visible military token (strategic or battlefield). */
+  setUnits(units: UnitTokenView[]): void {
+    this.unitLayer.setUnits(units);
+  }
+
+  setProjectiles(projectiles: BattleProjectileView[]): void {
+    this.projectileLayer.setProjectiles(projectiles);
+  }
+
+  /** Camera ladder: globe → army / battlefield without swapping controllers. */
+  frameArmy(lon: number, lat: number): void {
+    this.rig.flyTo(lon, lat, 0.2);
+  }
+
+  enterBattlefield(lon: number, lat: number): void {
+    this.rig.flyTo(lon, lat, TACTICAL.battleAltitude);
+  }
+
+  returnToStrategic(countryId: string | null): void {
+    if (countryId) this.frameCountry(countryId);
+    else this.rig.flyTo(this.rig.focusLonLat[0], this.rig.focusLonLat[1], CAMERA.startAltitude);
+  }
+
   setSelection(selectedId: string | null, hoveredId: string | null): void {
     if (this.selectedId === selectedId && this.hoveredId === hoveredId) return;
     this.selectedId = selectedId;
@@ -424,15 +454,26 @@ export class GlobeRenderer {
     else this.rig.flyTo(lon, lat, altitude);
   }
 
-  pick(clientX: number, clientY: number): string | null {
+  /** Picks a 3D unit token; used for tactical selection. */
+  pickUnit(clientX: number, clientY: number): string | null {
+    if (!this.prepareRay(clientX, clientY)) return null;
+    return this.unitLayer.pick(this.raycaster);
+  }
+
+  private prepareRay(clientX: number, clientY: number): boolean {
     const canvas = this.renderer.domElement;
     const rect = canvas.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return null;
+    if (rect.width === 0 || rect.height === 0) return false;
     this.pointerNdc.set(
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(this.pointerNdc, this.rig.camera);
+    return true;
+  }
+
+  pick(clientX: number, clientY: number): string | null {
+    if (!this.prepareRay(clientX, clientY)) return null;
     const hits = this.raycaster.intersectObject(this.surfaceMesh, false);
     if (hits.length === 0) return null;
     const hit = hits[0];
@@ -534,6 +575,8 @@ export class GlobeRenderer {
     for (const geometry of this.geometry.outlines.values()) geometry.dispose();
     this.surfaceMaterial.dispose();
     this.armyMarkers.dispose();
+    this.unitLayer.dispose();
+    this.projectileLayer.dispose();
     this.renderer.dispose();
   }
 }

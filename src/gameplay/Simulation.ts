@@ -7,6 +7,8 @@ import { SimEventBus } from './events';
 import { syncMilitaryTotals } from './military/armies';
 import { ArmySystem, type MarchResult } from './military/ArmySystem';
 import { MilitarySystem } from './military/MilitarySystem';
+import { BattlefieldManager } from './tactical/BattlefieldManager';
+import type { BattleCommand, SavedTacticalBattle } from './tactical/types';
 import { ResearchSystem, startResearch as beginProgramme } from './research/ResearchSystem';
 import type { World } from './World';
 
@@ -27,6 +29,8 @@ const OCCUPATION_TRIBUTE = 0.4;
 
 export class Simulation {
   readonly events = new SimEventBus();
+  /** Player-involved engagements represented in 3D. Strategic results stay authoritative. */
+  readonly battlefields: BattlefieldManager;
   private readonly economy = new EconomySystem();
   private readonly research: ResearchSystem;
   private readonly armies: ArmySystem;
@@ -41,6 +45,12 @@ export class Simulation {
     this.military = new MilitarySystem(this.events, this.armies);
     this.diplomacy = new DiplomacySystem(this.events);
     this.ai = new AIDirector(world, this.events);
+    this.battlefields = new BattlefieldManager(world.playerCountryId);
+    // Every strategic battle publishes its rosters; the tactical manager opens
+    // a battlefield only for engagements that involve the player.
+    this.events.on((event) => {
+      if (event.type === 'battleResolved') this.battlefields.onBattleResolved(world, event);
+    });
   }
 
   tickDay(day: number): void {
@@ -78,6 +88,33 @@ export class Simulation {
       declareWar: (countryId, targetId) => this.declareWar(countryId, targetId),
       makePeace: (countryId, targetId) => this.makePeace(countryId, targetId),
     });
+  }
+
+  /** Advances real-time 3D battlefields while the campaign is running. */
+  advanceRealtime(dtSeconds: number): void {
+    this.battlefields.tick(dtSeconds);
+  }
+
+  /** Restores battlefields from a save after the strategic world is rebuilt. */
+  restoreBattlefields(saved: SavedTacticalBattle[] | undefined): void {
+    this.battlefields.restore(saved);
+  }
+
+  playerBattle() {
+    return this.battlefields.playerBattle();
+  }
+
+  issueBattleCommand(command: BattleCommand): boolean {
+    const battle = this.battlefields.playerBattle();
+    if (!battle) return false;
+    const accepted = battle.command(command);
+    if (accepted) this.battlefields.applyFormationToArmies(this.world);
+    return accepted;
+  }
+
+  dismissBattle(): void {
+    const battle = this.battlefields.playerBattle();
+    if (battle) this.battlefields.dismiss(battle.id);
   }
 
   /** A share of an occupied country's revenue goes to its occupier. */

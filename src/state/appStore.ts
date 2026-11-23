@@ -4,6 +4,7 @@ import { previewCountry } from '../game/preview';
 import type { CountryBrief, CampaignDifficulty, PlayerSnapshot } from '../game/types';
 import { saveManager } from '../save/SaveManager';
 import type { SaveSlotId, SaveSummary } from '../save/types';
+import type { FormationType } from '../gameplay/tactical/types';
 import { useSettingsStore } from './settingsStore';
 import { translate } from '../i18n';
 import { formatNumber } from '../i18n/format';
@@ -20,6 +21,18 @@ export type DialogId = 'none' | 'save' | 'load' | 'settings' | 'pause' | 'leave'
 
 export interface CameraFocusRequest {
   countryId: string;
+  nonce: number;
+}
+
+export interface BattleFocusRequest {
+  lon: number;
+  lat: number;
+  nonce: number;
+}
+
+export interface ArmyFocusRequest {
+  lon: number;
+  lat: number;
   nonce: number;
 }
 
@@ -45,6 +58,8 @@ interface AppState {
   busy: boolean;
   toast: Toast | null;
   cameraFocus: CameraFocusRequest | null;
+  battleFocus: BattleFocusRequest | null;
+  armyFocus: ArmyFocusRequest | null;
   pausedFromSpeed: 1 | 2 | 4;
 
   goToMenu: () => void;
@@ -82,6 +97,17 @@ interface AppState {
   declareWar: (targetId: string) => void;
   makePeace: (targetId: string) => void;
 
+  focusBattleCamera: (lon: number, lat: number) => void;
+  focusArmyCamera: (lon: number, lat: number) => void;
+  selectUnit: (unitId: string | null) => void;
+  setBattleFormation: (formation: FormationType) => void;
+  battleAdvance: () => void;
+  battleHold: () => void;
+  battleWithdraw: () => void;
+  battleAttackSelected: () => void;
+  battleHoldSelected: () => void;
+  dismissBattle: () => void;
+
   showToast: (message: string, tone?: Toast['tone']) => void;
   dismissToast: () => void;
 }
@@ -108,6 +134,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
   busy: false,
   toast: null,
   cameraFocus: null,
+  battleFocus: null,
+  armyFocus: null,
   pausedFromSpeed: 1,
 
   goToMenu: () => set({ phase: 'menu', dialog: 'none', selectedCountryId: null, hoveredCountryId: null }),
@@ -200,6 +228,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       selectedCountryId: countryId,
       snapshot: session.snapshot(),
       cameraFocus: { countryId, nonce: Date.now() },
+      battleFocus: null,
     });
     set({
       inspectedBrief: (() => {
@@ -283,6 +312,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       busy: false,
       selectedCountryId: session.world.playerCountryId,
       cameraFocus: { countryId: session.world.playerCountryId, nonce: Date.now() },
+      battleFocus: null,
     });
     get().selectCountry(session.world.playerCountryId);
     get().showToast(message('save.loadedToast'), 'success');
@@ -409,6 +439,77 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
     get().showToast(message('diplomacy.peaceMade'), 'success');
     set({ snapshot: session.snapshot() });
+  },
+
+  // ── Tactical layer ────────────────────────────────────────────────────────
+
+  focusBattleCamera: (lon, lat) =>
+    set({ battleFocus: { lon, lat, nonce: Date.now() + Math.random() } }),
+
+  focusArmyCamera: (lon, lat) =>
+    set({ armyFocus: { lon, lat, nonce: Date.now() + Math.random() } }),
+
+  selectUnit: (unitId) => {
+    const session = get().session;
+    if (!session) return;
+    session.selectUnit(unitId);
+    set({ snapshot: session.snapshot() });
+  },
+
+  setBattleFormation: (formation) => {
+    const session = get().session;
+    if (!session) return;
+    if (!session.setBattleFormation(formation)) return;
+    set({ snapshot: session.snapshot() });
+  },
+
+  battleAdvance: () => {
+    const session = get().session;
+    if (!session) return;
+    if (!session.battleAdvance()) {
+      get().showToast(message('battle.noTarget'), 'warning');
+      return;
+    }
+    set({ snapshot: session.snapshot() });
+  },
+
+  battleHold: () => {
+    const session = get().session;
+    if (!session) return;
+    if (!session.battleHold()) return;
+    set({ snapshot: session.snapshot() });
+  },
+
+  battleWithdraw: () => {
+    const session = get().session;
+    if (!session) return;
+    if (!session.battleWithdraw()) return;
+    set({ snapshot: session.snapshot() });
+  },
+
+  battleAttackSelected: () => {
+    const session = get().session;
+    if (!session) return;
+    if (!session.battleAttackNearest()) {
+      get().showToast(message('battle.noTarget'), 'warning');
+      return;
+    }
+    set({ snapshot: session.snapshot() });
+  },
+
+  battleHoldSelected: () => {
+    const session = get().session;
+    if (!session) return;
+    if (!session.battleHoldSelected()) return;
+    set({ snapshot: session.snapshot() });
+  },
+
+  dismissBattle: () => {
+    const session = get().session;
+    if (!session) return;
+    session.dismissBattle();
+    set({ snapshot: session.snapshot() });
+    get().focusCountryCamera(session.world.playerCountryId);
   },
 
   showToast: (text, tone = 'info') => {

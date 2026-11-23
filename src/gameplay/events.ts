@@ -25,6 +25,12 @@ export type SimEvent =
       attackerLosses: number;
       defenderLosses: number;
       day: number;
+      /** Pre-battle rosters, attacker first. Consumed by the tactical layer. */
+      sides?: Array<{
+        countryId: string;
+        armyId: string;
+        roster: Record<string, number>;
+      }>;
     }
   | { type: 'territoryOccupied'; countryId: string; occupierId: string; day: number }
   | { type: 'territoryLiberated'; countryId: string; day: number }

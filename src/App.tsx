@@ -20,6 +20,12 @@ export function App() {
   const hoveredCountryId = useAppStore((state) => state.hoveredCountryId);
   const session = useAppStore((state) => state.session);
   const mapArmies = useAppStore((state) => state.snapshot?.mapArmies);
+  const mapUnits = useAppStore((state) => state.snapshot?.mapUnits);
+  const battleUnits = useAppStore((state) => state.snapshot?.battleUnits);
+  const projectiles = useAppStore((state) => state.snapshot?.battle?.projectiles);
+  const battleFocus = useAppStore((state) => state.battleFocus);
+  const armyFocus = useAppStore((state) => state.armyFocus);
+  const selectUnit = useAppStore((state) => state.selectUnit);
   const locale = useSettingsStore((state) => state.locale);
   const languageChosen = useSettingsStore((state) => state.languageChosen);
   const { t: tr } = useI18n();
@@ -30,6 +36,8 @@ export function App() {
     document.documentElement.dir = definition.dir;
     document.title = `${tr('app.name')} · ${tr('app.tagline')}`;
   }, [locale, tr]);
+
+  const units = battleUnits && battleUnits.length > 0 ? battleUnits : (mapUnits ?? []);
 
   const labels = useMemo<StageLabel[]>(() => {
     const out: StageLabel[] = [];
@@ -66,6 +74,14 @@ export function App() {
         autoRotate={phase === 'menu' ? 0.035 : 0}
         labels={labels}
         armies={phase === 'game' ? mapArmies : undefined}
+        units={phase === 'game' ? units : undefined}
+        projectiles={phase === 'game' ? projectiles : undefined}
+        battleFocus={battleFocus}
+        armyFocus={armyFocus}
+        onUnitClick={(unitId) => {
+          if (phase !== 'game') return;
+          if (unitId) selectUnit(unitId);
+        }}
       />
       <div className="app-shell__screens">
         {!languageChosen && <LanguageGate />}

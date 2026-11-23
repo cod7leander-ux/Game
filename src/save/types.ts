@@ -1,8 +1,9 @@
 import type { GameSpeed } from '../core/config';
 import type { CountryState, NotificationEntry } from '../gameplay/country/types';
+import type { SavedTacticalBattle } from '../gameplay/tactical/types';
 
 /** Bump when the saved shape changes; add a migration in migrations.ts. */
-export const CURRENT_SAVE_VERSION = 2;
+export const CURRENT_SAVE_VERSION = 3;
 
 export const SAVE_SLOT_IDS = ['auto', '1', '2', '3', '4', '5'] as const;
 export type SaveSlotId = (typeof SAVE_SLOT_IDS)[number];
@@ -44,6 +45,11 @@ export interface SaveFile {
   world: SavedWorld;
   clock: SavedClock;
   notifications: NotificationEntry[];
+  /**
+   * Active player battlefields, including tactical unit positions, health,
+   * targets and formation. Empty when no engagement is being represented.
+   */
+  battlefields?: SavedTacticalBattle[];
 }
 
 export interface SaveSummary {

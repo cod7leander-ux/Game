@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAppStore } from '../../state/appStore';
 import { useSettingsStore } from '../../state/settingsStore';
 import { useI18n } from '../hooks/useI18n';
@@ -6,6 +6,7 @@ import { TopBar } from '../components/TopBar';
 import { SidePanel } from '../components/SidePanel';
 import { CountryDossier } from '../components/CountryDossier';
 import { NotificationsDrawer } from '../components/NotificationsDrawer';
+import { BattleHud } from '../components/BattleHud';
 import { relationStatusOf } from '../components/relation-utils';
 
 export function GameShell() {
@@ -21,6 +22,20 @@ export function GameShell() {
   const togglePause = useAppStore((state) => state.togglePause);
   const setSpeed = useAppStore((state) => state.setSpeed);
   const selectCountry = useAppStore((state) => state.selectCountry);
+  const focusBattleCamera = useAppStore((state) => state.focusBattleCamera);
+  const battle = snapshot?.battle ?? null;
+  const lastBattleId = useRef<string | null>(null);
+
+  // New engagement: move the existing camera down the ladder to the battlefield.
+  useEffect(() => {
+    if (!battle) {
+      lastBattleId.current = null;
+      return;
+    }
+    if (lastBattleId.current === battle.id) return;
+    lastBattleId.current = battle.id;
+    focusBattleCamera(battle.lon, battle.lat);
+  }, [battle, focusBattleCamera]);
 
   // Fixed-step simulation driven by the browser clock.
   useEffect(() => {
@@ -109,6 +124,7 @@ export function GameShell() {
         <span>{snapshot.dateLabel}</span>
       </div>
 
+      <BattleHud snapshot={snapshot} />
       <NotificationsDrawer />
     </div>
   );
