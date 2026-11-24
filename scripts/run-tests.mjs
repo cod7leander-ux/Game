@@ -10,9 +10,11 @@ const entries = [
   { entry: 'scripts/sim-smoke.ts', name: 'sim-smoke' },
   { entry: 'scripts/tactical-smoke.ts', name: 'tactical-smoke' },
   { entry: 'scripts/strategic-smoke.ts', name: 'strategic-smoke' },
+  { entry: 'scripts/geography-smoke.ts', name: 'geography-smoke' },
 ];
 
-for (const { entry, name } of entries) {
+const only = process.argv[2];
+for (const { entry, name } of entries.filter((entry) => !only || entry.name === only)) {
   const outDir = resolve(`node_modules/.cache/terra-${name}`);
   await build({
     configFile: false,

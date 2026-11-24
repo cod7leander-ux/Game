@@ -2,7 +2,7 @@
 
 An original, offline 3D grand-strategy / real-time strategy game: you take command of one nation on a living Earth while every other country is run by AI. Inspired by the strategic scale of classic world-map RTS games, with its own world, rules, art direction and interface.
 
-**Status: Milestone 3 complete** — the Milestone 2 campaign now sits on a scalable tactical military foundation: data-driven unit definitions and weapons, individual 3D units on the globe, ground and air movement, line/column/wedge formations, detection and targeting, real-time damage and destruction, placeholder projectiles, a battlefield mode layered over the strategic battle resolution, tactical selection and command UI, and save schema v3 — all in English and Persian.
+**Status: Milestone 5 complete** — the strategic map now has a proper geographic foundation: a provider-based geographic data model over real Natural Earth country outlines, territory-subdivided provinces with centroids, areas, bounds and adjacency, batched province fills and borders, ten cached map layers, region picking, a region camera level, cities with LOD, airports, ports and a transport graph, A* army routing over the region graph, a regional supply network, save schema v5 and the full v1 → v2 → v3 → v4 → v5 migration chain — all in English and Persian.
 
 ---
 
@@ -29,9 +29,16 @@ src/
   data/           content catalogs: countries, cities, units, tactical profiles,
                   weapons, research, governments, personalities, resources
                   (data only, no logic)
+  geo/            geographic data layer (engine- and UI-independent)
+    provider.ts     GeographicDataProvider, validation, cached world data
+    provinces.ts    deterministic province partition + adjacency graphs
+    cities.ts       city, airport and port geography with region links
+    transport.ts    road/rail/sea/air strategic transport graph
+    import.ts       GeoJSON normalisation pipeline for real GIS data
   gameplay/       the simulation — engine-agnostic
-    World.ts        country registry, adjacency, seeded starting diplomacy
+    World.ts        country registry, geographic adjacency, seeded diplomacy
     Simulation.ts   deterministic day tick order
+    pathfinding/    A* strategic routing over the geographic region graph
     country/        CountryState factory, modifiers, types
     economy/        income, resources, stability
     research/       tech progress and effects
@@ -58,15 +65,23 @@ Rules of the codebase: gameplay never imports the renderer or React; screens nev
 
 ---
 
-## World map architecture
+## Geographic world (Milestone 5)
 
-- **Data**: Natural Earth 1:110m admin-0 boundaries (public domain), converted by `scripts/build-country-data.mjs` into `src/data/countries.json` — 174 countries, 278 polygons with holes, English and Persian names, bounds and a label anchor. Regenerate with `npm run data:countries -- path/to/countries.geojson`.
-- **Geometry**: all countries are merged into a single extruded mesh with per-vertex country index, biome tint and a wall ring for coastlines. Borders are one line mesh, the ocean is one sphere, the atmosphere one shell, cities one point cloud. Result: a handful of draw calls for the entire planet.
-- **Zoom ladder**: one continuous orbital camera (focus lon/lat + altitude + heading + tilt). There is no controller swap; detail tiers drive shader detail, labels and future unit LOD. A long jump snaps, short hops glide.
-- **Terrain relief**: a small shader injection adds continental relief and fine noise that fades in as the camera descends, so the same mesh reads as a globe at altitude and as terrain up close, without textures.
-- **Detail tiers** in `CAMERA.detailTiers` define global / country / region / city thresholds. Battlefield rendering will be a sibling render layer selected by the same tier value.
-- **Picking**: raycast against the merged surface plus the per-vertex `countryIndex` attribute — no per-country meshes, so hundreds of countries cost the same as one.
-- **Scale plan**: region meshes and unit instancing will stream per visible tile; the country mesh stays resident because it is already cheap. AI and simulation are already spatial-partition-ready (adjacency graph, per-country state).
+**Data model.** `src/geo/types.ts` defines the single geographic contract: countries, regions, cities, airports and ports, all in WGS84 `[lon, lat]`. A `GeographicDataProvider` supplies country boundaries, region boundaries, adjacency, cities, airports, ports, transport and validation. `NATURAL_EARTH_PROVIDER` (exported as `GEOGRAPHY`) is the bundled implementation; gameplay imports ids and metadata from it and never opens raw geometry.
+
+**Real country boundaries.** Country outlines are the Natural Earth 1:110m admin-0 dataset (public domain) already in `src/data/countries.json`: 174 countries, 278 polygons with holes, islands and coastal outlines. Country adjacency is derived from shared border vertices, with a bounded sea-proximity fallback for island states. `scripts/build-country-data.mjs` regenerates the file from a newer GeoJSON extract.
+
+**Provinces without invented borders.** The dataset has no admin-1 provinces, so Milestone 5 does not pretend to have real ones. Instead, each country's *real* territory is triangulated once and every triangle is assigned to the nearest strategic province anchor, producing a contiguous partition that respects coastlines, islands and holes. From it the provider derives the province centroid, spherical area, bounding box, exact intra-country adjacency from shared triangle edges and cross-border links. Small outlines that triangulate into fewer cells than they have provinces share a cell with their best-covered neighbour, so no region is ever an orphan. The result is `geometryRef: province:<id>@v1`, a stable reference rather than geometry in saves.
+
+**Importing real GIS data.** `src/geo/import.ts` normalises an admin-1 GeoJSON FeatureCollection: rings are closed and validated, coordinates checked, ids de-duplicated, centroid/area/bounds computed and adjacency derived from shared edges. Expected properties are `id|code|ISO_1`, `country|iso_a3|ADM0_A3`, `name|NAME` and optional `name_fa|NAME_FA`. Place a generated `src/data/regions.geo.json`, run its features through `normalizeRegionGeoJson`, and export a provider built from those regions in place of `NATURAL_EARTH_PROVIDER`; simulation, saves, AI and UI keep reading region ids. The pipeline and its expected input are also documented in `IMPORT_INSTRUCTIONS`. Real admin-1 data was not bundled because no openly licensed, project-sized dataset was added within this milestone; the seam is complete and tested with synthetic imported polygons.
+
+**Rendering.** The merged country surface carries a per-vertex `regionIndex` attribute built from the provider cells. A second batched mesh (`RegionLayer`) draws all province fills in one draw call, with one border line mesh for internal province boundaries and the existing coastline walls for the coast. Switching map layer only rewrites the colour attribute and only when the derived values changed; geometry is never rebuilt per frame. Cities use three LOD point clouds (capital/major/minor) plus separate airport and port clouds. Army markers remain instanced.
+
+**Map layers.** Political, terrain, population, economy, resources, infrastructure, supply, military, diplomacy and objectives. Values are normalised into the snapshot (0..1) from the same simulation state the panels use, cached in the snapshot, and rendered through one vertex-colour buffer. Resource regions show their dominant resource colour; supply shows the regional network level; objectives highlight their target regions.
+
+**Picking and camera.** One raycast against the merged surface resolves both `countryIndex` and `regionIndex`; there is no polygon scan and no per-country object. At country altitude or closer a click selects the province and opens its inspector; at global altitude it selects the country, preserving the original behaviour. The single camera rig gained a `frameRegion` step, so the ladder is global → country → region → army → battlefield without a controller swap.
+
+**Cities and infrastructure.** Cities carry population, strategic/industrial value, category, airport/port flags and a region link. Airports and ports are region-owned infrastructure points with level, capacity and military/naval classification; they feed the transport graph and the supply network and are available to future air/naval systems. The transport graph adds road/rail edges from province adjacency, sea lanes between nearby ports and air links between airport hubs.
 
 ## Country architecture
 
@@ -156,19 +171,30 @@ Armies are the operational layer, kept in `CountryState.military.armies` and ser
 
 **Logistics and stability.** `LogisticsSystem` gives every army a 0..1 supply value driven by territory, source (home/allied/access), distance, infrastructure, terrain, occupation and logistics technology. Below 45% supply, readiness falls; sustained unsupply causes attrition and can destroy formations. `StabilitySystem` owns war exhaustion, unrest and national stability, fed by shortages, debt, occupation, war and government baseline; stability feeds income, production, research and AI posture. Supply also slows marches and weakens combat power.
 
+## Strategic routing and supply (Milestone 5)
+
+**Army pathfinding.** `gameplay/pathfinding/Pathfinder.ts` runs A* over the region adjacency graph. Cost includes great-circle distance, terrain march cost, infrastructure, enemy soil, occupation, damage and a bounded heuristic; only provinces the mover may legally enter are expanded (own, allied, military access, occupied by the mover, or at war with the owner). Neutral closed territory blocks the search. Paths are cached per mover/origin/destination/day and are only computed when an order is issued — never per frame. The region route is projected onto a country hop sequence; `ArmySystem.orderStrategicMove` executes it hop by hop, and every hop resolves through the normal arrival rules (battle, occupation, liberation), so multi-hop movement cannot bypass combat or borders. Direct single-hop orders still work and cancel a standing route.
+
+**Supply network.** `SupplySystem`/`supplyNetwork.ts` computes a bounded multi-source flow from hubs (capital, depots, ports, developed provinces) over the geographic region graph, with decay from distance, terrain, infrastructure, unrest, damage, occupation and sea lanes. Each country gets one field per day; the level is stored per region and drives both the supply layer and army supply. Occupied and unsupported soil is more expensive and weaker, but the approximation never simulates individual convoys.
+
+**Resources on the map.** Resource production is already regional; the resource layer surfaces the dominant resource and richness of every province, and resource objectives remain part of the AI and objective systems.
+
 ## Localization
 
 Typed catalogs (`src/i18n/locales/en.ts`, `fa.ts`) keyed by `MessageKey`, so a missing key is a compile error. Content (country, city, unit, tech, government, personality names/descriptions) is `LocalizedText { en, fa }` in the data files. `useI18n()` exposes `t`, and locale-aware `n`, `compact`, `signed`, `percent`, `decimal`, `timestamp` — every number and date goes through it so Persian digits, separators and the `٪` sign are consistent. Direction is applied at the document root, layouts use logical CSS properties, and Vazirmatn is bundled for Persian typography. Adding a language is a catalog plus a `LOCALES` entry.
 
 ## Save architecture
 
-`SaveFile` is versioned (`CURRENT_SAVE_VERSION = 4`, migration chain in `save/migrations.ts`). A save contains campaign metadata, the full world (every country's state, provinces, economy allocation and resource flow, production queues, objectives, armies and marches with supply, occupation, AI memory, queues, relations incl. trust/threat/pacts), clock, notifications, seed and any active **battlefields** — including tactical unit positions, altitude, heading, health, formation, targets, cooldowns, casualties and team assignment.
+`SaveFile` is versioned (`CURRENT_SAVE_VERSION = 5`, migration chain in `save/migrations.ts`). A save contains campaign metadata, the full world (every country's state, provinces with supply and control, economy allocation and resource flow, production queues, objectives, armies with anchor regions, marches, routes and supply, occupation, AI memory, queues, relations incl. trust/threat/pacts), clock, notifications, seed, the **geography reference** (provider id and region source, never geometry) and any active **battlefields** — including tactical unit positions, altitude, heading, health, formation, targets, cooldowns, casualties and team assignment. Raw country/province polygons, cities and map meshes are static data and are never written to saves.
 
 Migrations keep old campaigns loading:
 
 - **v1 → v2** gives every country a field army built from its old aggregate formations and an explicit `occupierId`.
 - **v2 → v3** gives every army a default formation and adds the battlefield list.
 - **v3 → v4** regenerates deterministic provinces for every country, adds aluminium, budget allocation, resource flow, production/objectives, war exhaustion/unrest, army supply fields and the expanded agreement set with neutral defaults — no saved army, relation or territory is dropped.
+- **v4 → v5** adds the geographic layer: regional supply levels, army anchor regions and an empty multi-hop route, occupation-aware region control and the geography provider reference. Geometry is re-read from the data layer; every saved army, region and relation survives.
+
+The full chain **v1 → v2 → v3 → v4 → v5** is exercised by the headless suites.
 
 Storage is IndexedDB with a localStorage fallback, six slots (`auto`, 1–5), plus JSON import/export. Saves are schema-validated on load; incompatible or corrupt files surface a localized error instead of breaking the app.
 
@@ -214,7 +240,8 @@ The headless suites run the real simulation and tactical engine in Node, without
 
 - `scripts/sim-smoke.ts` — campaign, armies, war, battles, occupation, save round-trip, v1 migration.
 - `scripts/tactical-smoke.ts` — token creation, formations, movement/rotation/stopping, layer-aware targeting, weapon cooldowns, damage and destruction, projectile simulation, strategic→tactical bridge, battlefield persistence, team assignment and the v2 → v3 migration.
-- `scripts/strategic-smoke.ts` — regional economy/resources, construction queue and completion, research progress and effects, diplomatic pacts/war/peace/embargo guards, stability and war exhaustion, supply and attrition, AI focus/objectives, v4 round-trip, v3 → v4 migration, the full v1 → v4 chain and a 180-day multi-country campaign regression.
+- `scripts/strategic-smoke.ts` — regional economy/resources, construction queue and completion, research progress and effects, diplomatic pacts/war/peace/embargo guards, stability and war exhaustion, supply and attrition, AI focus/objectives, v5 round-trip, v3 → v5 migration, the full v1 → v5 chain and a 180-day multi-country campaign regression.
+- `scripts/geography-smoke.ts` — provider validation, country/region geometry, centroid/area/bounds, adjacency symmetry, GIS import and duplicate detection, domestic/blocked/war/long-distance pathfinding with terrain/infrastructure/occupation costs, regional supply flow, resource ownership, map selection and occupation tones, v5 round-trip, v4 → v5 and v1 → v5 chains, and a 240-day deterministic campaign checking ownership, routes, supply, diplomacy and memory growth.
 
 GitHub Actions runs the same typecheck, production build and test suites on every push and pull request (`.github/workflows/ci.yml`).
 
@@ -223,21 +250,22 @@ GitHub Actions runs the same typecheck, production build and test suites on ever
 1. **Done** — foundation, 3D Earth, camera ladder, nation selection and dossiers, campaign shell, economy/research/military/diplomacy/AI simulation, save/load, EN + FA.
 2. **Done** — field armies on the globe, strategic movement between neighbours, 3D army markers, deterministic battles, territorial occupation and liberation, AI army command, player war/peace actions, save schema v2, CI.
 3. **Done** — tactical military foundation: data-driven units and weapons, 3D units on the globe, ground/air movement, formations, detection, targeting, real-time combat, placeholder projectiles, battlefield mode, tactical selection and command UI, save v3.
-4. **Done** — strategic depth: provinces and terrain, regional economy and resources, budget allocation, infrastructure production, expanded research, trust/threat diplomacy with pacts and embargoes, scheduled strategic AI with objectives, supply/logistics, unrest and war exhaustion, strategic UI and save v4 (v3 → v4 migration). Trade routes and world events remain future work.
-5. Final unit models from reference images, PBR materials, VFX and audio for the tactical layer; unit LOD and battlefield streaming.
-6. Advanced AI, peace deals with terms, alliances that fight together on the map, deeper battlefield AI.
-7. Content expansion to hundreds of units and a deeper world simulation.
+4. **Done** — strategic depth: provinces and terrain, regional economy and resources, budget allocation, infrastructure production, expanded research, trust/threat diplomacy with pacts and embargoes, scheduled strategic AI with objectives, supply/logistics, unrest and war exhaustion, strategic UI and save v4 (v3 → v4 migration).
+5. **Done** — geographic strategic map: provider-based geographic data layer over real country boundaries, province territory geometry with centroids/areas/bounds/adjacency, batched province fills and borders, ten map layers, region picking and inspector, region camera level, city/airport/port LOD, transport graph, A* army routing, regional supply network, geography save v5 (v4 → v5 migration).
+6. Final unit models from reference images, PBR materials, VFX and audio for the tactical layer; unit LOD and battlefield streaming.
+7. Advanced AI, peace deals with terms, alliances that fight together on the map, deeper battlefield AI.
+8. Content expansion to hundreds of units and a deeper world simulation, plus a bundled licensed admin-1 dataset.
 
-## Known limitations (Milestone 4)
+## Known limitations (Milestone 5)
 
-- Provinces are generated deterministically from country data, cities and anchors rather than real administrative polygons; `geometryRef` is the seam for a GIS dataset, and the map draws province markers rather than filled borders.
-- Occupation is still whole-country. Region control exists in state and in the inspector, but capturing a country occupies every province at once and no separate peace terms or annexation exist yet.
+- Provinces are a deterministic partition of real national territory, not real administrative polygons. No openly licensed admin-1 dataset was bundled; the province shapes are intentionally a fallback and `geometryRef` + the tested GeoJSON import pipeline are the replacement seam. Tiny nations with fewer triangulated cells than provinces share a cell between neighbouring provinces.
+- Occupation is still whole-country, by design: capturing a country marks every province occupied so the region layer, supply network and economy agree. There is no separate province-level capture model, peace terms or annexation yet.
 - Resource flow is tracked per country, not per trade route: trade agreements add income but there is no convoy, blockade or market price model yet.
-- Logistics is one supply value per army derived from the standing country, not a routed supply network; there are no depot stockpiles or interdiction.
+- Supply is a bounded regional flow (hubs, roads, sea lanes, occupation, infrastructure), not a convoy simulation: there are no depot stockpiles, interdiction missions or per-route capacity limits, and the field is recomputed once per country per day.
 - The strategic AI plans with a bounded objective list and coarse strength comparisons. It does not coordinate multi-army offensives or evaluate long-term war costs beyond treasury and supply checks.
 - Terrain modifies strategic movement, supply, defence and industry; tactical battles use the country's weighted terrain defence but not per-tile cover, height or line-of-sight.
-- The new panels and province markers were verified through typecheck, production build and the headless suites, not by clicking through a browser in this milestone.
-- Strategic movement is still one hop at a time between adjacent countries; adjacency comes from label proximity, not border geometry, and there is no multi-hop pathfinding.
+- The cloud preview VM could not be reached by the browser automation layer (SOCKS/proxy failure), so the new map layers, province fills, city LOD and inspector were verified by typecheck, production build and headless suites, not by clicking through a live browser in this milestone.
+- Multi-hop strategic routing exists but is exposed to the player as a “march to objective” order rather than free province-to-province route drawing. Naval and air transport edges exist in the graph but armies still route over land; there is no naval invasion or airlift execution yet.
 - Tactical battles **represent** an engagement the strategic layer already resolved. The winner and the formation losses are authoritative; tactical combat reconciles to that quota rather than feeding a new result back. A battle also runs in real time while campaign days advance.
 - Only engagements involving the player spawn a 3D battlefield. AI-vs-AI wars remain abstract, though the AI commands its side in any battlefield it fights.
 - Battlefields are anchored at a country's label on the globe and units stand on the sphere surface; there is no terrain height sampling, cover or terrain modifier yet, and no obstacle pathfinding or collision avoidance (formations are direct slots, so units can overlap).
@@ -245,6 +273,6 @@ GitHub Actions runs the same typecheck, production build and test suites on ever
 - Targeting uses range, sensor radius and target layers. Stealth, electronic warfare, line-of-sight and terrain masking are represented in data but not yet applied. Weapon ammunition is in the schema but treated as unlimited for this era.
 - Battlefields are capped at 12 tokens per side and 3 active player battles. The data structures are instancing/spatial-partition ready, but the caps keep the current build responsive.
 - Occupation is whole-country and ends on liberation or peace; there are no separate peace terms, war score or annexation.
-- The world surface is a single merged mesh; region-level geometry arrives with a later milestone.
+- The country surface and the province overlay are each a single merged mesh. There is no tile streaming or per-province culling; at the current 384-region scale this is comfortably batched, but a multi-thousand-region dataset would need visible-tile streaming.
 - The tactical HUD and 3D unit rendering were verified through the headless suites (typecheck, build, simulation tests), not by clicking through a browser in this milestone.
 - The cloud preview VM renders with a software rasteriser (SwiftShader); the game detects that and selects the low preset, but frame rate there is far below what a hardware GPU delivers.

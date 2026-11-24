@@ -5,6 +5,8 @@ import { areAllied } from '../diplomacy/helpers';
 import type { World } from '../World';
 import { armyUnits, applyLosses, removeEmptyArmies, countryDistanceKm } from '../military/armies';
 import { averageInfrastructure, terrainProfile } from '../regions/regions';
+import { capitalRegionOf } from '../../data/regions';
+import { computeSupplyField, supplyAtRegion, type SupplyField } from './supplyNetwork';
 
 /**
  * Lightweight operational logistics.
@@ -27,7 +29,8 @@ export interface ArmySupplyResult {
 export const computeSupply = (
   world: World,
   country: CountryState,
-  army: { locationId: string },
+  army: { locationId: string; regionId?: string },
+  field?: SupplyField,
 ): ArmySupplyResult => {
   const location = world.get(army.locationId);
   if (!location) return { supply: 0.5, source: country.id, reason: 'unknown-territory' };
@@ -39,10 +42,15 @@ export const computeSupply = (
 
   let source: string | null = null;
   let base = 0.55;
+  const armyRegion =
+    army.regionId ?? capitalRegionOf(army.locationId)?.id ?? capitalRegionOf(country.id)?.id;
+  const network = field ? supplyAtRegion(field, armyRegion) : null;
 
   if (location.id === country.id || location.occupierId === country.id) {
     source = country.id;
-    base = 0.9;
+    // Own soil supply comes from the geographic network (hubs, roads, ports),
+    // falling back to the coarse distance model when no field is supplied.
+    base = network === null ? 0.9 : 0.6 + Math.min(1, network) * 0.34;
   } else if (areAllied(country, location)) {
     source = location.id;
     base = 0.78;
@@ -61,6 +69,8 @@ export const computeSupply = (
     ? clamp(1 - countryDistanceKm(country.id, location.id) / 12000, 0.45, 1)
     : 0.7;
   const occupationPenalty = country.occupierId ? 0.85 : 1;
+  const localRegion = location.regions?.find((region) => region.id === armyRegion);
+  const regionalOccupation = localRegion && localRegion.control !== 'sovereign' ? 0.88 : 1;
   const tech = 1 + country.modifiers.supply;
   const terrainSupply = (homeTerrain.supply + localTerrain.supply) / 2;
 
@@ -70,6 +80,7 @@ export const computeSupply = (
       distanceFactor *
       terrainSupply *
       occupationPenalty *
+      regionalOccupation *
       tech,
   );
 
@@ -87,11 +98,17 @@ export class LogisticsSystem {
    */
   tick(world: World): void {
     for (const country of world.countries.values()) {
+      // The geographic field is recomputed once per country per day and stored
+      // on regions, so the supply layer and the army model cannot disagree.
+      const field = computeSupplyField(world, country);
+      for (const region of country.regions) {
+        region.supplyLevel = Math.max(0, Math.min(1, field.levels.get(region.id) ?? 0));
+      }
       if (country.military.armies.length === 0) continue;
       let supplied = 0;
 
       for (const army of country.military.armies) {
-        const result = computeSupply(world, country, army);
+        const result = computeSupply(world, country, army, field);
         // Supply recovers quickly, degrades slowly: advances get harder over time.
         const rate = result.supply > army.supply ? 0.22 : 0.12;
         army.supply = clamp01(army.supply + (result.supply - army.supply) * rate);

@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { GlobeRenderer } from '../../render/GlobeRenderer';
 import type { ArmyMarkerSpec } from '../../render/ArmyMarkers';
-import type { RegionMarkerSpec } from '../../render/RegionMarkers';
-import type { BattleProjectileView, UnitTokenView } from '../../game/types';
+import type {
+  BattleProjectileView,
+  MapLayerId,
+  MapRegionView,
+  UnitTokenView,
+} from '../../game/types';
 import { resolveQuality, useSettingsStore } from '../../state/settingsStore';
 import { useAppStore } from '../../state/appStore';
 import { useI18n } from '../hooks/useI18n';
@@ -22,12 +26,16 @@ interface WorldStageProps {
   autoRotate?: number;
   labels?: StageLabel[];
   armies?: ArmyMarkerSpec[];
-  regions?: RegionMarkerSpec[];
+  mapRegions?: MapRegionView[];
+  mapLayer?: MapLayerId;
+  selectedRegionId?: string | null;
   units?: UnitTokenView[];
   projectiles?: BattleProjectileView[];
   onUnitClick?: (unitId: string | null) => void;
+  onRegionClick?: (regionId: string, countryId: string | null) => void;
   battleFocus?: { lon: number; lat: number; nonce: number } | null;
   armyFocus?: { lon: number; lat: number; nonce: number } | null;
+  regionFocus?: { regionId: string; lon: number; lat: number; nonce: number } | null;
   className?: string;
 }
 
@@ -42,12 +50,16 @@ export function WorldStage({
   autoRotate = 0,
   labels = [],
   armies = [],
-  regions = [],
+  mapRegions = [],
+  mapLayer = 'political',
+  selectedRegionId = null,
   units = [],
   projectiles = [],
   onUnitClick,
+  onRegionClick,
   battleFocus = null,
   armyFocus = null,
+  regionFocus = null,
   className,
 }: WorldStageProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -116,8 +128,12 @@ export function WorldStage({
   }, [armies, status]);
 
   useEffect(() => {
-    rendererRef.current?.setRegions(regions);
-  }, [regions, status]);
+    rendererRef.current?.setRegionVisuals(mapRegions, mapLayer);
+  }, [mapRegions, mapLayer, status]);
+
+  useEffect(() => {
+    rendererRef.current?.setSelectedRegion(selectedRegionId);
+  }, [selectedRegionId, status]);
 
   useEffect(() => {
     rendererRef.current?.setUnits(units);
@@ -136,6 +152,11 @@ export function WorldStage({
     if (status !== 'ready' || !armyFocus) return;
     rendererRef.current?.frameArmy(armyFocus.lon, armyFocus.lat);
   }, [armyFocus, status]);
+
+  useEffect(() => {
+    if (status !== 'ready' || !regionFocus) return;
+    rendererRef.current?.frameRegion(regionFocus.regionId);
+  }, [regionFocus, status]);
 
   useEffect(() => {
     rendererRef.current?.setQuality(resolveQuality(graphics));
@@ -229,8 +250,21 @@ export function WorldStage({
           onUnitClick(unitId);
           return;
         }
-        const id = rendererRef.current?.pick(event.clientX, event.clientY) ?? null;
-        selectCountry(id, false);
+        const renderer = rendererRef.current;
+        if (!renderer) return;
+        const hit = renderer.pickAt(event.clientX, event.clientY);
+        // Region-level selection once the camera is at country altitude or
+        // closer; at global zoom the country remains the natural target.
+        if (
+          hit.regionId &&
+          hit.countryId &&
+          renderer.rig.altitudeRatio <= 0.9 &&
+          onRegionClick
+        ) {
+          onRegionClick(hit.regionId, hit.countryId);
+          return;
+        }
+        selectCountry(hit.countryId, false);
       }
     };
 
@@ -260,7 +294,7 @@ export function WorldStage({
       canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('contextmenu', onContextMenu);
     };
-  }, [interactive, status, selectCountry, hoverCountry, onUnitClick]);
+  }, [interactive, status, selectCountry, hoverCountry, onUnitClick, onRegionClick]);
 
   // Keep DOM labels pinned to their geographic anchors.
   useEffect(() => {

@@ -5,6 +5,7 @@ import { useI18n } from '../hooks/useI18n';
 import { TopBar } from '../components/TopBar';
 import { SidePanel } from '../components/SidePanel';
 import { CountryDossier } from '../components/CountryDossier';
+import { MapLayerBar } from '../components/MapLayerBar';
 import { NotificationsDrawer } from '../components/NotificationsDrawer';
 import { BattleHud } from '../components/BattleHud';
 import { relationStatusOf } from '../components/relation-utils';
@@ -117,6 +118,8 @@ export function GameShell() {
           </div>
         </aside>
       )}
+
+      <MapLayerBar />
 
       <div className="game-shell__hint panel">
         <span>{tr('hud.zoomHint')}</span>

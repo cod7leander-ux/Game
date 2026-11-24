@@ -230,7 +230,7 @@ for (const country of legacyWorld.countries) {
   }
 }
 const migrated = migrateSave(legacy);
-assert(migrated.version === 4, 'v3 migrates to v4');
+assert(migrated.version === 5, 'v3 migrates through v4 to v5');
 assert(migrated.world.countries.every((country) => country.regions.length > 0), 'migration regenerates provinces');
 assert(migrated.world.countries.every((country) => country.economy.allocation), 'migration adds allocation');
 assert(
@@ -242,7 +242,7 @@ assert(
   Object.values(migrated.world.countries[0].diplomacy.relations).every((relation) => relationIsConsistent(relation)),
   'migrated relations are consistent',
 );
-log('v3 → v4 migration rebuilds provinces, economy and supply');
+log('v3 → v4 → v5 migration rebuilds provinces, economy and supply');
 
 // The full chain from the original schema.
 const ancient = JSON.parse(JSON.stringify(saveFile)) as Record<string, unknown>;
@@ -260,10 +260,10 @@ for (const country of ancientWorld.countries) {
   delete country.production;
 }
 const chained = migrateSave(ancient);
-assert(chained.version === 4, 'v1 migrates through v2, v3 to v4');
-assert(chained.world.countries.every((country) => country.military.armies.length > 0), 'v1 → v4 keeps an army per country');
-assert(chained.world.countries.every((country) => country.regions.length > 0), 'v1 → v4 creates provinces');
-log('v1 → v2 → v3 → v4 chain preserved');
+assert(chained.version === 5, 'v1 migrates through v2, v3, v4 to v5');
+assert(chained.world.countries.every((country) => country.military.armies.length > 0), 'v1 → v5 keeps an army per country');
+assert(chained.world.countries.every((country) => country.regions.length > 0), 'v1 → v5 creates provinces');
+log('v1 → v2 → v3 → v4 → v5 chain preserved');
 
 // ── Long campaign regression ────────────────────────────────────────────────
 const campaign = GameSession.create({ countryId: 'KWT', locale: 'en', difficulty: 'standard' });

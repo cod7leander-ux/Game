@@ -8,9 +8,15 @@ import { LogisticsSystem } from './logistics/LogisticsSystem';
 import { ProductionSystem } from './production/ProductionSystem';
 import { StabilitySystem } from './stability/StabilitySystem';
 import { pruneObjectives, reconcileObjectives } from './objectives/objectives';
+import { applyOccupation } from './regions/regions';
 import { SimEventBus } from './events';
 import { syncMilitaryTotals } from './military/armies';
-import { ArmySystem, type MarchResult } from './military/ArmySystem';
+import {
+  ArmySystem,
+  type MarchResult,
+  type StrategicMoveResult,
+} from './military/ArmySystem';
+import type { StrategicPath } from './pathfinding/Pathfinder';
 import { MilitarySystem } from './military/MilitarySystem';
 import { BattlefieldManager } from './tactical/BattlefieldManager';
 import type { BattleCommand, SavedTacticalBattle } from './tactical/types';
@@ -148,7 +154,7 @@ export class Simulation {
     if (!country.occupierId) return;
     const occupier = this.world.get(country.occupierId);
     if (!occupier || occupier.id === country.id) {
-      country.occupierId = null;
+      applyOccupation(country, null);
       return;
     }
     const tribute = Math.max(0, country.economy.income) * OCCUPATION_TRIBUTE;
@@ -182,6 +188,15 @@ export class Simulation {
     return this.armies.march(this.world, countryId, armyId, targetId, this.world.day);
   }
 
+  /** Multi-hop order over the geographic region graph. */
+  marchArmyTo(countryId: string, armyId: string, targetId: string): StrategicMoveResult {
+    return this.armies.orderStrategicMove(this.world, countryId, armyId, targetId, this.world.day);
+  }
+
+  planArmyRoute(countryId: string, armyId: string, targetId: string): StrategicPath | null {
+    return this.armies.planRoute(this.world, countryId, armyId, targetId);
+  }
+
   declareWar(aggressorId: string, defenderId: string): boolean {
     const aggressor = this.world.get(aggressorId);
     const defender = this.world.get(defenderId);
@@ -203,7 +218,7 @@ export class Simulation {
   private releaseOccupations(aId: string, bId: string): void {
     for (const country of this.world.countries.values()) {
       if (country.occupierId !== aId && country.occupierId !== bId) continue;
-      country.occupierId = null;
+      applyOccupation(country, null);
       country.stability = Math.min(0.95, country.stability + 0.04);
       this.events.emit({
         type: 'territoryLiberated',

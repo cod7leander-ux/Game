@@ -21,6 +21,11 @@ export function App() {
   const session = useAppStore((state) => state.session);
   const mapArmies = useAppStore((state) => state.snapshot?.mapArmies);
   const mapRegions = useAppStore((state) => state.snapshot?.mapRegions);
+  const mapLayer = useAppStore((state) => state.mapLayer);
+  const selectedRegionId = useAppStore((state) => state.selectedRegionId);
+  const selectRegion = useAppStore((state) => state.selectRegion);
+  const setPanelTab = useAppStore((state) => state.setPanelTab);
+  const regionFocus = useAppStore((state) => state.regionFocus);
   const mapUnits = useAppStore((state) => state.snapshot?.mapUnits);
   const battleUnits = useAppStore((state) => state.snapshot?.battleUnits);
   const projectiles = useAppStore((state) => state.snapshot?.battle?.projectiles);
@@ -61,12 +66,25 @@ export function App() {
       const player = session.world.playerCountryId;
       push(player, 'green');
       if (selectedCountryId && selectedCountryId !== player) push(selectedCountryId, 'gold');
+      const region = selectedRegionId
+        ? mapRegions?.find((entry) => entry.id === selectedRegionId)
+        : undefined;
+      if (region) {
+        out.push({
+          id: `region-${region.id}`,
+          lon: region.lon,
+          lat: region.lat,
+          title: region.name,
+          subtitle: region.ownerName,
+          tone: 'cyan',
+        });
+      }
     } else {
       push(hoveredCountryId, 'cyan');
       if (selectedCountryId !== hoveredCountryId) push(selectedCountryId, 'gold');
     }
     return out;
-  }, [phase, session, selectedCountryId, hoveredCountryId, locale]);
+  }, [phase, session, selectedCountryId, hoveredCountryId, selectedRegionId, mapRegions, locale]);
 
   return (
     <div className="app-shell" data-phase={phase}>
@@ -75,7 +93,16 @@ export function App() {
         autoRotate={phase === 'menu' ? 0.035 : 0}
         labels={labels}
         armies={phase === 'game' ? mapArmies : undefined}
-        regions={phase === 'game' ? mapRegions : undefined}
+        mapRegions={phase === 'game' ? mapRegions : undefined}
+        mapLayer={mapLayer}
+        selectedRegionId={selectedRegionId}
+        regionFocus={regionFocus}
+        onRegionClick={(regionId, countryId) => {
+          if (phase !== 'game') return;
+          selectRegion(regionId);
+          if (countryId) useAppStore.getState().selectCountry(countryId, false);
+          setPanelTab('territory');
+        }}
         units={phase === 'game' ? units : undefined}
         projectiles={phase === 'game' ? projectiles : undefined}
         battleFocus={battleFocus}

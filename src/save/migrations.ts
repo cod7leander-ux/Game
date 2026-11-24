@@ -1,4 +1,5 @@
 import { buildRegionStates } from '../gameplay/regions/regions';
+import { GEOGRAPHY } from '../geo';
 import { createEmptyResources, DEFAULT_ALLOCATION } from '../gameplay/economy/types';
 import { createRelation } from '../gameplay/diplomacy/types';
 import { CURRENT_SAVE_VERSION, type SaveFile } from './types';
@@ -164,6 +165,63 @@ export const MIGRATIONS: Record<number, Migration> = {
       };
     });
     return { ...file, version: 4, world: { ...world, countries } };
+  },
+
+  /**
+   * v5 introduces the geographic layer: regional supply state, army anchor
+   * regions and multi-hop route state, plus the dataset reference. Geometry is
+   * never stored — a save keeps ids only and re-reads the static dataset.
+   * Existing armies keep their position and receive an empty route.
+   */
+  4: (file) => {
+    const world = (file.world ?? {}) as { day?: number; countries?: LegacyCountry[] };
+    const countries = (world.countries ?? []).map((raw) => {
+      const country = raw as Record<string, unknown>;
+      const id = String(country.id ?? '');
+      const regions = (Array.isArray(country.regions) ? country.regions : []).map((entry) => {
+        const region = entry as Record<string, unknown>;
+        return {
+          ...region,
+          supplyLevel: Number(
+            region.supplyLevel ?? Math.max(0.35, Math.min(1, Number(region.infrastructure ?? 0.4))),
+          ),
+          control: region.control ?? (country.occupierId ? 'occupied' : 'sovereign'),
+        };
+      });
+      const fallbackRegionId =
+        String(country.capitalRegionId ?? '') ||
+        (regions[0] as { id?: string } | undefined)?.id ||
+        `${id}-R1`;
+      const military = (country.military ?? {}) as Record<string, unknown>;
+      const armies = (Array.isArray(military.armies) ? military.armies : []).map((entry) => {
+        const army = entry as Record<string, unknown>;
+        return {
+          ...army,
+          regionId: String(army.regionId ?? fallbackRegionId),
+          route: Array.isArray(army.route) ? army.route : [],
+          routeTargetId: army.routeTargetId ?? null,
+        };
+      });
+      return {
+        ...country,
+        regions,
+        capitalRegionId: country.capitalRegionId ?? fallbackRegionId,
+        military: { ...military, armies },
+      };
+    });
+    return {
+      ...file,
+      version: 5,
+      world: {
+        ...world,
+        countries,
+        geography: {
+          provider: GEOGRAPHY.id,
+          regionSource: GEOGRAPHY.regionSource,
+          version: 1,
+        },
+      },
+    };
   },
 };
 

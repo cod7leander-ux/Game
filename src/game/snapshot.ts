@@ -3,8 +3,10 @@ import { PERSONALITIES } from '../data/personalities';
 import { RESOURCES, RESOURCE_ORDER } from '../data/resources';
 import { getTech, TECHNOLOGIES } from '../data/research';
 import { INFRASTRUCTURE_PROJECTS, getProject } from '../data/production';
-import { regionAt } from '../data/regions';
+import { capitalRegionOf, regionAt } from '../data/regions';
 import { TERRAIN } from '../data/terrain';
+import { GEOGRAPHY, normalisedCentroid, regionAirports, regionCities, regionPorts } from '../geo';
+import type { RegionState } from '../gameplay/regions/types';
 import { canAffordProject, projectAvailable } from '../gameplay/production/ProductionSystem';
 import { UNIT_LIST, getUnit } from '../data/units';
 import { citiesOf, capitalOf } from '../data/cities';
@@ -37,9 +39,9 @@ import type {
   FormationView,
   ObjectiveView,
   PlayerSnapshot,
+  MapRegionView,
   ProductionProjectView,
   QueueView,
-  RegionMarkerView,
   RegionView,
   ResourceView,
   UnitTokenView,
@@ -127,58 +129,214 @@ const buildQueueViews = (country: CountryState, locale: LocaleCode): QueueView[]
     };
   });
 
+const resourceOutput = (
+  region: RegionState,
+  locale: LocaleCode,
+): RegionView['output'] =>
+  Object.entries(region.output)
+    .filter(([, amount]) => (amount ?? 0) > 0.01)
+    .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
+    .map(([id, amount]) => ({
+      id: id as ResourceId,
+      name: localize(RESOURCES[id as ResourceId].name, locale),
+      amount: amount ?? 0,
+    }));
+
+const buildRegionView = (
+  world: World,
+  owner: CountryState,
+  region: RegionState,
+  locale: LocaleCode,
+  selectedRegionId: string | null | undefined,
+): RegionView => {
+  const definition = regionAt(region.id);
+  const terrain = TERRAIN[definition?.terrain ?? 'plains'];
+  const ownerDefinition = COUNTRY_BY_ID[owner.id];
+  const cities = regionCities(region.id).map((city) => ({
+    id: city.id,
+    name: localize(city.name, locale),
+    regionId: city.regionId,
+    population: city.population,
+    strategicValue: city.strategicValue,
+    industrialValue: city.industrialValue,
+    hasAirport: city.hasAirport,
+    hasPort: city.hasPort,
+    isCapital: city.isCapital,
+    category: city.category,
+  }));
+  const armies = [...world.countries.values()]
+    .filter((country) => country.id === owner.id || country.occupierId === owner.id)
+    .flatMap((country) => country.military.armies)
+    .filter((army) => army.locationId === owner.id)
+    .map((army) => ({
+      id: army.id,
+      name: `${ownerDefinition ? localize(ownerDefinition.name, locale) : owner.id} ${army.ordinal}`,
+      units: armyUnits(army),
+    }));
+  const gdpShare = definition?.industryShare ?? 0;
+  return {
+    id: region.id,
+    name: definition ? localize(definition.name, locale) : region.id,
+    countryId: owner.id,
+    ownerName: ownerDefinition ? localize(ownerDefinition.name, locale) : owner.id,
+    terrain: localize(terrain.name, locale),
+    terrainColor: terrain.color,
+    isCapital: definition?.isCapital ?? false,
+    population: region.population,
+    industryShare: definition?.industryShare ?? 0,
+    infrastructure: region.infrastructure,
+    supplyHub: region.supplyHub,
+    supplyLevel: region.supplyLevel ?? 0,
+    unrest: region.unrest,
+    damage: region.damage,
+    control: region.control,
+    strategicValue: definition?.strategicValue ?? 0,
+    hasPort: definition?.hasPort ?? false,
+    hasAirport: definition?.hasAirport ?? false,
+    output: resourceOutput(region, locale),
+    selected: region.id === selectedRegionId,
+    cities,
+    airports: regionAirports(region.id).map((airport) => ({
+      id: airport.id,
+      name: localize(airport.name, locale),
+      level: airport.level,
+      capacity: airport.capacity,
+      military: airport.military,
+    })),
+    ports: regionPorts(region.id).map((port) => ({
+      id: port.id,
+      name: localize(port.name, locale),
+      level: port.level,
+      capacity: port.capacity,
+    })),
+    neighbours: (definition?.borders ?? [])
+      .map((id) => {
+        const neighbour = regionAt(id);
+        return neighbour ? localize(neighbour.name, locale) : id;
+      }),
+    armies,
+    occupiedBy: owner.occupierId
+      ? (() => {
+          const occupier = COUNTRY_BY_ID[owner.occupierId!];
+          return occupier ? localize(occupier.name, locale) : owner.occupierId;
+        })()
+      : null,
+    gdpShare,
+  };
+};
+
 const buildRegionViews = (
+  world: World,
   country: CountryState,
   locale: LocaleCode,
   selectedRegionId: string | null | undefined,
 ): RegionView[] =>
-  country.regions.map((region) => {
-    const definition = regionAt(region.id);
-    const terrain = TERRAIN[definition?.terrain ?? 'plains'];
-    return {
-      id: region.id,
-      name: definition ? localize(definition.name, locale) : region.id,
-      terrain: localize(terrain.name, locale),
-      terrainColor: terrain.color,
-      isCapital: definition?.isCapital ?? false,
-      population: region.population,
-      infrastructure: region.infrastructure,
-      supplyHub: region.supplyHub,
-      unrest: region.unrest,
-      damage: region.damage,
-      control: region.control,
-      strategicValue: definition?.strategicValue ?? 0,
-      hasPort: definition?.hasPort ?? false,
-      hasAirport: definition?.hasAirport ?? false,
-      output: Object.entries(region.output)
-        .filter(([, amount]) => (amount ?? 0) > 0.01)
-        .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
-        .map(([id, amount]) => ({
-          id: id as ResourceId,
-          name: localize(RESOURCES[id as ResourceId].name, locale),
-          amount: amount ?? 0,
-        })),
-      selected: region.id === selectedRegionId,
-    };
-  });
+  country.regions.map((region) =>
+    buildRegionView(world, country, region, locale, selectedRegionId),
+  );
 
-const buildMapRegions = (
+const relationTone = (
+  player: CountryState,
   country: CountryState,
+): MapRegionView['tone'] => {
+  if (country.id === player.id) return 'player';
+  if (country.occupierId) return country.occupierId === player.id ? 'player' : 'occupied';
+  if (areAllied(player, country)) return 'ally';
+  if (areAtWar(player, country)) return 'enemy';
+  return 'neutral';
+};
+
+const buildMapRegionViews = (
+  world: World,
+  player: CountryState,
+  locale: LocaleCode,
   selectedRegionId: string | null | undefined,
-): RegionMarkerView[] =>
-  country.regions.flatMap((region) => {
-    const definition = regionAt(region.id);
-    if (!definition) return [];
-    return [
-      {
+): MapRegionView[] => {
+  const countries = [...world.countries.values()];
+  let maxPopulation = 1;
+  let maxEconomy = 1;
+  let maxMilitary = 1;
+  for (const country of countries) {
+    for (const region of country.regions) {
+      maxPopulation = Math.max(maxPopulation, region.population);
+      const output = Object.values(region.output).reduce((total, value) => total + (value ?? 0), 0);
+      maxEconomy = Math.max(maxEconomy, output);
+    }
+    maxMilitary = Math.max(
+      maxMilitary,
+      country.military.armies.reduce((total, army) => total + armyUnits(army), 0),
+    );
+  }
+
+  const views: MapRegionView[] = [];
+  for (const country of countries) {
+    const definition = COUNTRY_BY_ID[country.id];
+    const tone = relationTone(player, country);
+    const allied = tone === 'ally';
+    const atWar = tone === 'enemy';
+    const relation = player.diplomacy.relations[country.id];
+    const military = country.military.armies.reduce(
+      (total, army) => total + armyUnits(army),
+      0,
+    );
+    let objectiveValue = 0;
+    for (const objective of player.objectives) {
+      if (objective.status !== 'active') continue;
+      if (objective.targetCountryId === country.id) objectiveValue = 1;
+    }
+    for (const region of country.regions) {
+      const regionDefinition = regionAt(region.id);
+      if (!regionDefinition) continue;
+      const output = Object.values(region.output).reduce(
+        (total, value) => total + (value ?? 0),
+        0,
+      );
+      let bestResource: { id: ResourceId; value: number } | null = null;
+      for (const [id, value] of Object.entries(regionDefinition.richness)) {
+        if (!value || value <= 0) continue;
+        if (!bestResource || value > bestResource.value) {
+          bestResource = { id: id as ResourceId, value };
+        }
+      }
+      const objectiveTarget =
+        player.objectives.some(
+          (objective) =>
+            objective.status === 'active' && objective.targetRegionId === region.id,
+        );
+      const terrain = TERRAIN[regionDefinition.terrain];
+      const geo = GEOGRAPHY.region(region.id);
+      const [lon, lat] = geo
+        ? normalisedCentroid(geo)
+        : [regionDefinition.position[0], regionDefinition.position[1]];
+      views.push({
         id: region.id,
-        lon: definition.position[0],
-        lat: definition.position[1],
+        countryId: country.id,
+        lon,
+        lat,
+        terrain: regionDefinition.terrain,
+        terrainColor: terrain.color,
+        tone,
         selected: region.id === selectedRegionId,
-        occupied: region.control !== 'sovereign',
-      },
-    ];
-  });
+        population: Math.min(1, region.population / maxPopulation),
+        economy: Math.min(1, output / maxEconomy),
+        infrastructure: region.infrastructure,
+        supply: region.supplyLevel ?? 0,
+        military: Math.min(1, military / maxMilitary),
+        diplomacy: atWar ? 1 : allied ? 0.82 : Math.max(0, Math.min(1, (relation?.value ?? 0) / 100)),
+        objectives: objectiveTarget ? 1 : objectiveValue,
+        resourceId: bestResource?.id ?? null,
+        resourceColor: bestResource ? RESOURCES[bestResource.id].color : null,
+        resourceIntensity: bestResource ? Math.min(1, bestResource.value / 1.6) : 0,
+        occupied: Boolean(country.occupierId),
+        allied,
+        atWar,
+        ownerName: definition ? localize(definition.name, locale) : country.id,
+        name: localize(regionDefinition.name, locale),
+      });
+    }
+  }
+  return views;
+};
 
 const buildDiplomacyViews = (country: CountryState, locale: LocaleCode): DiplomacyView[] => {
   const views: DiplomacyView[] = [];
@@ -282,6 +440,8 @@ const buildArmyViews = (
             return source ? localize(source.name, locale) : army.supplySource;
           })()
         : null,
+      route: [...(army.route ?? [])],
+      regionId: army.regionId ?? '',
     });
   }
   return views.sort((a, b) => a.ordinal - b.ordinal);
@@ -336,17 +496,24 @@ const buildObjectives = (country: CountryState, locale: LocaleCode): ObjectiveVi
     .sort((a, b) => Number(b.status === 'active') - Number(a.status === 'active') || b.priority - a.priority)
     .slice(0, 12)
     .map((objective) => {
-      const target = objective.targetCountryId
+      const targetCountry = objective.targetCountryId
         ? COUNTRY_BY_ID[objective.targetCountryId]
-        : objective.targetRegionId
-          ? undefined
-          : undefined;
-      const region = objective.targetRegionId ? regionAt(objective.targetRegionId) : undefined;
-      const targetName = target
-        ? localize(target.name, locale)
-        : region
-          ? localize(region.name, locale)
+        : undefined;
+      const targetRegionDefinition = objective.targetRegionId
+        ? regionAt(objective.targetRegionId)
+        : undefined;
+      const targetName = targetCountry
+        ? localize(targetCountry.name, locale)
+        : targetRegionDefinition
+          ? localize(targetRegionDefinition.name, locale)
           : null;
+      const targetGeo = objective.targetRegionId
+        ? GEOGRAPHY.region(objective.targetRegionId)
+        : undefined;
+      const fallbackPoint = targetCountry?.label ?? targetRegionDefinition?.position;
+      const [lon, lat] = targetGeo
+        ? normalisedCentroid(targetGeo)
+        : (fallbackPoint ?? [0, 0]);
       return {
         id: objective.id,
         kind: translate(locale, `objective.kind.${objective.kind}` as MessageKey),
@@ -354,6 +521,14 @@ const buildObjectives = (country: CountryState, locale: LocaleCode): ObjectiveVi
         status: objective.status,
         targetName,
         note: objective.note,
+        target: targetName
+          ? {
+              lon,
+              lat,
+              regionId: objective.targetRegionId ?? null,
+              countryId: objective.targetCountryId ?? null,
+            }
+          : null,
       };
     });
 
@@ -390,11 +565,28 @@ const buildArmyMarkers = (world: World, playerId: string): ArmyMarkerView[] => {
     const definition = COUNTRY_BY_ID[country.id];
     if (!definition) continue;
     for (const army of country.military.armies) {
+      const region = army.regionId ? GEOGRAPHY.region(army.regionId) : undefined;
+      const [lon, lat] = region ? normalisedCentroid(region) : definition.label;
+      const units = armyUnits(army);
+      const destination = army.movement
+        ? (() => {
+            const destinationRegion = capitalRegionOf(army.movement.to);
+            const destinationGeo = destinationRegion
+              ? GEOGRAPHY.region(destinationRegion.id)
+              : undefined;
+            return destinationGeo ? normalisedCentroid(destinationGeo) : undefined;
+          })()
+        : undefined;
       markers.push({
         id: army.id,
-        lon: definition.label[0],
-        lat: definition.label[1],
+        lon,
+        lat,
         tone: own ? 'player' : 'enemy',
+        strength: Math.max(0.6, Math.min(1.4, units / 12)),
+        supply: army.supply,
+        moving: Boolean(army.movement),
+        toLon: destination?.[0] ?? null,
+        toLat: destination?.[1] ?? null,
       });
     }
   }
@@ -426,6 +618,10 @@ const buildMapUnits = (world: World, playerId: string): UnitTokenView[] => {
         .sort((a, b) => b[1] - a[1])
         .slice(0, TACTICAL.mapTokensPerArmy);
       const armyOffset = (armyIndex - (country.military.armies.length - 1) / 2) * 0.03;
+      const armyRegion = army.regionId ? GEOGRAPHY.region(army.regionId) : undefined;
+      const [armyLon, armyLat] = armyRegion
+        ? normalisedCentroid(armyRegion)
+        : definition.label;
 
       entries.forEach(([unitId], index) => {
         const profile = tacticalProfileOrFallback(unitId);
@@ -436,8 +632,8 @@ const buildMapUnits = (world: World, playerId: string): UnitTokenView[] => {
           id: `${army.id}-token-${index}`,
           unitId,
           archetype: profile.archetype,
-          lon: definition.label[0],
-          lat: definition.label[1],
+          lon: armyLon,
+          lat: armyLat,
           offsetEast: armyOffset + (column - 0.5) * 0.016,
           offsetNorth: (row - 0.5) * 0.016,
           altitude: profile.layer === 'air' ? 0.022 : 0.004,
@@ -685,8 +881,19 @@ export const buildPlayerSnapshot = (input: SnapshotInput): PlayerSnapshot | null
       upkeep: dailyUpkeep(country),
     },
     diplomacy: buildDiplomacyViews(country, locale),
-    regions: buildRegionViews(country, locale, input.selectedRegionId),
-    mapRegions: buildMapRegions(country, input.selectedRegionId),
+    regions: buildRegionViews(input.world, country, locale, input.selectedRegionId),
+    inspectedRegion: (() => {
+      const regionId = input.selectedRegionId;
+      if (!regionId) return null;
+      const definition = regionAt(regionId);
+      if (!definition) return null;
+      const owner = input.world.get(definition.countryId);
+      const state = owner?.regions.find((region) => region.id === regionId);
+      return owner && state
+        ? buildRegionView(input.world, owner, state, locale, input.selectedRegionId)
+        : null;
+    })(),
+    mapRegions: buildMapRegionViews(input.world, country, locale, input.selectedRegionId),
     production: {
       construction: buildConstructionViews(country, locale),
       projects: buildProductionProjects(country, locale),

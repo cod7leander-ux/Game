@@ -9,6 +9,19 @@ import type { ResourceId } from '../gameplay/economy/types';
 
 export type CampaignDifficulty = 'relaxed' | 'standard' | 'hardened';
 
+/** Strategic map layers. Every layer is derived from cached snapshot values. */
+export type MapLayerId =
+  | 'political'
+  | 'terrain'
+  | 'population'
+  | 'economy'
+  | 'resources'
+  | 'infrastructure'
+  | 'supply'
+  | 'military'
+  | 'diplomacy'
+  | 'objectives';
+
 export interface ResourceView {
   id: ResourceId;
   name: string;
@@ -22,12 +35,17 @@ export interface ResourceView {
 export interface RegionView {
   id: string;
   name: string;
+  /** Owning country, which may differ from the player for inspected regions. */
+  countryId: string;
+  ownerName: string;
   terrain: string;
   terrainColor: string;
   isCapital: boolean;
   population: number;
+  industryShare: number;
   infrastructure: number;
   supplyHub: number;
+  supplyLevel: number;
   unrest: number;
   damage: number;
   control: 'sovereign' | 'occupied' | 'contested';
@@ -36,6 +54,65 @@ export interface RegionView {
   hasAirport: boolean;
   output: Array<{ id: ResourceId; name: string; amount: number }>;
   selected: boolean;
+  cities: CityView[];
+  airports: Array<{ id: string; name: string; level: number; capacity: number; military: boolean }>;
+  ports: Array<{ id: string; name: string; level: number; capacity: number }>;
+  neighbours: string[];
+  armies: Array<{ id: string; name: string; units: number }>;
+  occupiedBy: string | null;
+  gdpShare: number;
+}
+
+/** City projection for the map and the region inspector. */
+export interface CityView {
+  id: string;
+  name: string;
+  regionId: string;
+  population: number;
+  strategicValue: number;
+  industrialValue: number;
+  hasAirport: boolean;
+  hasPort: boolean;
+  isCapital: boolean;
+  category: string;
+}
+
+/**
+ * One region as the map layer consumes it. Numbers are normalised to 0..1 so
+ * the renderer never recomputes economy, supply or diplomacy per frame.
+ */
+export interface MapRegionView {
+  id: string;
+  countryId: string;
+  lon: number;
+  lat: number;
+  terrain: string;
+  terrainColor: string;
+  tone: 'player' | 'ally' | 'enemy' | 'neutral' | 'occupied';
+  selected: boolean;
+  population: number;
+  economy: number;
+  infrastructure: number;
+  supply: number;
+  military: number;
+  diplomacy: number;
+  objectives: number;
+  resourceId: ResourceId | null;
+  resourceColor: string | null;
+  resourceIntensity: number;
+  occupied: boolean;
+  allied: boolean;
+  atWar: boolean;
+  ownerName: string;
+  name: string;
+}
+
+/** Objective with a map target, so selecting it can focus the camera. */
+export interface ObjectiveMapTarget {
+  lon: number;
+  lat: number;
+  regionId: string | null;
+  countryId: string | null;
 }
 
 export interface ProductionProjectView {
@@ -64,6 +141,7 @@ export interface ObjectiveView {
   status: 'active' | 'completed' | 'failed';
   targetName: string | null;
   note: string;
+  target: ObjectiveMapTarget | null;
 }
 
 export interface ArmySupplyView {
@@ -147,6 +225,9 @@ export interface ArmyView {
   /** 0..1 operational supply and where it comes from. */
   supply: number;
   supplySourceName: string | null;
+  /** Remaining country hops of a multi-hop strategic route. */
+  route: string[];
+  regionId: string;
 }
 
 /** Lightweight marker consumed by the 3D army layer. */
@@ -155,6 +236,14 @@ export interface ArmyMarkerView {
   lon: number;
   lat: number;
   tone: 'player' | 'enemy' | 'ally';
+  /** 0..1 relative strength, drives marker scale. */
+  strength: number;
+  /** 0..1 supply, tints the marker. */
+  supply: number;
+  moving: boolean;
+  /** Destination of the current march, for the route line. */
+  toLon: number | null;
+  toLat: number | null;
 }
 
 /** Province marker for the strategic map overlay. */
@@ -313,8 +402,10 @@ export interface PlayerSnapshot {
   };
   diplomacy: DiplomacyView[];
   regions: RegionView[];
-  /** Region markers rendered on the globe. */
-  mapRegions: RegionMarkerView[];
+  /** The inspected region, including foreign territory. */
+  inspectedRegion: RegionView | null;
+  /** Every region in the world with normalised map-layer values. */
+  mapRegions: MapRegionView[];
   production: {
     construction: ConstructionView[];
     projects: ProductionProjectView[];

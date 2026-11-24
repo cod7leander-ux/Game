@@ -5,6 +5,7 @@ import {
   COUNTRY_BY_ID,
   MAX_BASE_GDP,
 } from '../data/countries';
+import { COUNTRY_ADJACENCY } from '../geo';
 import { createRelation } from './diplomacy/types';
 import { createCountryState } from './country/factory';
 import { recomputeModifiers } from './country/modifiers';
@@ -61,13 +62,19 @@ export class World {
   }
 
   /**
-   * Approximate adjacency from label proximity on the sphere.
-   *
-   * A precise border graph comes from the geometry pipeline later; proximity is
-   * deterministic and adequate for diplomatic contact in Milestone 1.
+   * Real border adjacency first, with the original label-proximity graph as a
+   * bounded fallback so small island states still have diplomatic contact.
+   * The geographic graph comes from the country boundary dataset.
    */
   private buildAdjacency(): void {
     const definitions = this.definitions();
+    this.adjacency = new Map<string, string[]>();
+    for (const definition of definitions) {
+      const geographic = (COUNTRY_ADJACENCY.get(definition.id) ?? [])
+        .filter((id) => Boolean(COUNTRY_BY_ID[id]))
+        .slice(0, 8);
+      if (geographic.length > 0) this.adjacency.set(definition.id, [...geographic]);
+    }
     const pairs: Array<{ a: string; b: string; distance: number }> = [];
 
     for (let i = 0; i < definitions.length; i += 1) {
@@ -86,12 +93,12 @@ export class World {
     pairs.sort((left, right) => left.distance - right.distance);
     for (const pair of pairs) {
       const listA = this.adjacency.get(pair.a) ?? [];
-      if (listA.length < 8) {
+      if (listA.length < 8 && !listA.includes(pair.b)) {
         listA.push(pair.b);
         this.adjacency.set(pair.a, listA);
       }
       const listB = this.adjacency.get(pair.b) ?? [];
-      if (listB.length < 8) {
+      if (listB.length < 8 && !listB.includes(pair.a)) {
         listB.push(pair.a);
         this.adjacency.set(pair.b, listB);
       }
@@ -120,12 +127,17 @@ export class World {
           relation.ally = true;
           relation.value = Math.max(65, relation.value);
           if (!country.diplomacy.allies.includes(allyId)) country.diplomacy.allies.push(allyId);
-          const reverse = this.countries.get(allyId)?.diplomacy.relations[country.id];
-          if (reverse) {
+          const ally = this.countries.get(allyId);
+          if (ally) {
+            // Alliances are always symmetric, even when the target country has
+            // not been visited by the seeding loop yet.
+            const reverse =
+              ally.diplomacy.relations[country.id] ?? createRelation(day, Math.max(20, relation.value));
             reverse.ally = true;
+            reverse.nonAggression = false;
             reverse.value = Math.max(65, reverse.value);
-            const ally = this.countries.get(allyId);
-            if (ally && !ally.diplomacy.allies.includes(country.id)) {
+            ally.diplomacy.relations[country.id] = reverse;
+            if (!ally.diplomacy.allies.includes(country.id)) {
               ally.diplomacy.allies.push(country.id);
             }
           }

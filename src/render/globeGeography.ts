@@ -1,7 +1,7 @@
-import earcut from 'earcut';
 import { BufferAttribute, BufferGeometry } from 'three';
 import { GAME } from '../core/config';
 import { COUNTRY_BY_ID, COUNTRY_GEOMETRIES, type CountryGeometry, type CountryPolygon } from '../data/countries';
+import { ALL_REGION_GEO, cellsOfCountry, type ProvinceCell } from '../geo';
 import { biomeTint } from './theme';
 
 /**
@@ -26,8 +26,14 @@ export interface GlobeGeometry {
   highlights: Map<string, BufferGeometry>;
   /** countryId → outline line geometry. */
   outlines: Map<string, BufferGeometry>;
+  /** regionIndex attribute value → region id (for picking). */
+  regionIds: string[];
   triangles: number;
 }
+
+const REGION_INDEX: Record<string, number> = Object.fromEntries(
+  ALL_REGION_GEO.map((region, index) => [region.id, index]),
+);
 
 const DEG = Math.PI / 180;
 
@@ -71,6 +77,7 @@ interface VertexBuffers {
   positions: number[];
   normals: number[];
   colors: number[];
+  regions: number[];
 }
 
 const pushVertex = (
@@ -82,46 +89,40 @@ const pushVertex = (
   ny: number,
   nz: number,
   color: { r: number; g: number; b: number },
+  regionIndex = -1,
 ): void => {
   buffers.positions.push(x, y, z);
   buffers.normals.push(nx, ny, nz);
   buffers.colors.push(color.r, color.g, color.b);
+  buffers.regions.push(regionIndex);
 };
 
-const buildPolygonSurface = (
+/**
+ * Surface territory comes from the geographic provider's triangulated cells so
+ * the renderer, the region index and the province overlay all reference exactly
+ * the same geometry. Country outlines, holes and walls remain real.
+ */
+const buildCountrySurface = (
   countryId: string,
-  polygon: CountryPolygon,
+  cells: ProvinceCell[],
   relief: number,
   buffers: VertexBuffers,
 ): void => {
-  const reference = polygon.outer[0]?.[0] ?? 0;
-  const outer = stripClosingPoint(unwrapRing(polygon.outer, reference));
-  const holes = polygon.holes.map((hole) => stripClosingPoint(unwrapRing(hole, reference)));
-  if (outer.length < 3) return;
-
-  const flat: number[] = [];
-  const holeIndices: number[] = [];
-  for (const [lon, lat] of outer) flat.push(lon, lat);
-  for (const hole of holes) {
-    if (hole.length < 3) continue;
-    holeIndices.push(flat.length / 2);
-    for (const [lon, lat] of hole) flat.push(lon, lat);
-  }
-
-  const triangles = earcut(flat, holeIndices, 2);
   const radius = RADIUS + relief;
-  const tint = biomeTint(countryId, outer[0][0], outer[0][1]);
   const point: [number, number, number] = [0, 0, 0];
   const normal: [number, number, number] = [0, 0, 0];
 
-  for (let index = 0; index < triangles.length; index += 1) {
-    const vertexIndex = triangles[index];
-    const lon = flat[vertexIndex * 2];
-    const lat = flat[vertexIndex * 2 + 1];
-    lonLatToXYZ(lon, lat, radius, point);
-    lonLatToXYZ(lon, lat, 1, normal);
-    biomeTint(countryId, lon, lat, tint);
-    pushVertex(buffers, point[0], point[1], point[2], normal[0], normal[1], normal[2], tint);
+  for (const cell of cells) {
+    const triangle = cell.triangle;
+    const regionIndex = REGION_INDEX[cell.regionId] ?? -1;
+    for (let corner = 0; corner < 3; corner += 1) {
+      const lon = triangle[corner * 2];
+      const lat = triangle[corner * 2 + 1];
+      lonLatToXYZ(lon, lat, radius, point);
+      lonLatToXYZ(lon, lat, 1, normal);
+      const tint = biomeTint(countryId, lon, lat);
+      pushVertex(buffers, point[0], point[1], point[2], normal[0], normal[1], normal[2], tint, regionIndex);
+    }
   }
 };
 
@@ -222,7 +223,7 @@ let cached: GlobeGeometry | null = null;
 export const buildGlobeGeometry = (): GlobeGeometry => {
   if (cached) return cached;
 
-  const mergedBuffers: VertexBuffers = { positions: [], normals: [], colors: [] };
+  const mergedBuffers: VertexBuffers = { positions: [], normals: [], colors: [], regions: [] };
   const countryIndex: number[] = [];
   const borderPositions: number[] = [];
   const countryIds: string[] = [];
@@ -235,10 +236,13 @@ export const buildGlobeGeometry = (): GlobeGeometry => {
     const definition = COUNTRY_BY_ID[entry.id];
     if (!definition) continue;
     const relief = reliefFor(definition.baseGdp);
-    const buffers: VertexBuffers = { positions: [], normals: [], colors: [] };
+    const buffers: VertexBuffers = { positions: [], normals: [], colors: [], regions: [] };
 
+    const cells = cellsOfCountry(entry.id);
+    if (cells.length > 0) {
+      buildCountrySurface(entry.id, cells, relief, buffers);
+    }
     for (const polygon of entry.polygons) {
-      buildPolygonSurface(entry.id, polygon, relief, buffers);
       buildPolygonWalls(entry.id, polygon, relief, buffers);
     }
     if (buffers.positions.length === 0) continue;
@@ -251,6 +255,7 @@ export const buildGlobeGeometry = (): GlobeGeometry => {
     mergedBuffers.positions.push(...buffers.positions);
     mergedBuffers.normals.push(...buffers.normals);
     mergedBuffers.colors.push(...buffers.colors);
+    mergedBuffers.regions.push(...buffers.regions);
     highlights.set(entry.id, bufferToGeometry(buffers));
 
     const outline: number[] = [];
@@ -263,6 +268,7 @@ export const buildGlobeGeometry = (): GlobeGeometry => {
 
   const surface = bufferToGeometry(mergedBuffers);
   surface.setAttribute('countryIndex', new BufferAttribute(new Float32Array(countryIndex), 1));
+  surface.setAttribute('regionIndex', new BufferAttribute(new Float32Array(mergedBuffers.regions), 1));
   surface.computeBoundingSphere();
 
   const borders = new BufferGeometry();
@@ -275,6 +281,7 @@ export const buildGlobeGeometry = (): GlobeGeometry => {
     countryIds,
     highlights,
     outlines,
+    regionIds: ALL_REGION_GEO.map((region) => region.id),
     triangles: mergedBuffers.positions.length / 9,
   };
   return cached;

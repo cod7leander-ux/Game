@@ -324,7 +324,7 @@ export const en = {
   'settings.reset': 'Reset settings',
   'settings.save': 'Done',
   'settings.about': 'About this build',
-  'settings.aboutBody': 'Milestone 3 — 3D military units, formations, targeting, weapons and real-time battlefields layered over the strategic campaign.',
+  'settings.aboutBody': 'Milestone 5 — a geographic strategic map with real country boundaries, province territory, map layers, cities, airports, ports, A* army routing and a regional supply network.',
 
   'dialog.pause': 'Campaign paused',
   'dialog.resume': 'Resume',
@@ -503,6 +503,32 @@ export const en = {
 
   'notify.constructionStart': 'Construction started: {project}',
   'notify.constructionDone': 'Construction complete: {project}',
+
+  'layer.title': 'Map layer',
+  'layer.political': 'Political',
+  'layer.terrain': 'Terrain',
+  'layer.population': 'Population',
+  'layer.economy': 'Economy',
+  'layer.resources': 'Resources',
+  'layer.infrastructure': 'Infrastructure',
+  'layer.supply': 'Supply',
+  'layer.military': 'Military',
+  'layer.diplomacy': 'Diplomacy',
+  'layer.objectives': 'Objectives',
+
+  'territory.owner': 'Owner',
+  'territory.industry': 'Industry share',
+  'territory.supply': 'Supply',
+  'territory.foreign': 'Foreign territory of {owner}.',
+  'territory.inspectOnMap': 'Focus on map',
+  'territory.cities': 'Cities',
+  'territory.noCities': 'No catalogued city in this region.',
+  'territory.infrastructurePoints': 'Airports and ports',
+  'territory.armies': 'Military presence',
+  'territory.neighbours': 'Neighbouring regions',
+
+  'military.followObjective': 'March to objective',
+  'military.routePending': 'Planned route: {count} hop(s)',
 } as const;
 
 export type Messages = { [K in keyof typeof en]: string };

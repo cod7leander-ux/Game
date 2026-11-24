@@ -28,6 +28,7 @@ export const buildRegionStates = (
     bonusOutput: {},
     industryBonus: 0,
     output: {},
+    supplyLevel: definition.isCapital ? 0.9 : definition.hasPort || definition.infrastructure > 0.6 ? 0.7 : 0.5,
   }));
 
 export const regionDefinition = (regionId: string): RegionDefinition | undefined =>
@@ -166,6 +167,23 @@ export const resourceRegions = (country: CountryState, resource: string): Region
       const db = regionAt(b.id)?.richness as Record<string, number | undefined> | undefined;
       return (db?.[resource] ?? 0) - (da?.[resource] ?? 0);
     });
+
+/**
+ * Applies a country-level occupation to every province.
+ *
+ * Occupation remains a country-level strategic rule; synchronising province
+ * control in one place keeps the map layer, supply network and economy from
+ * disagreeing after liberation or peace.
+ */
+export const applyOccupation = (
+  country: CountryState,
+  occupierId: string | null,
+): void => {
+  country.occupierId = occupierId;
+  for (const region of country.regions) {
+    region.control = occupierId ? 'occupied' : 'sovereign';
+  }
+};
 
 /** Applies war damage and unrest to all regions of a country. */
 export const applyRegionalShock = (

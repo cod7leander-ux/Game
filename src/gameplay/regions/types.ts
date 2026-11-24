@@ -27,4 +27,6 @@ export interface RegionState {
   industryBonus: number;
   /** Last computed daily output per resource, for interface and AI. */
   output: Partial<Record<ResourceId, number>>;
+  /** 0..1 daily supply reachable through the geographic network. */
+  supplyLevel: number;
 }

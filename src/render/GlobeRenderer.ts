@@ -31,14 +31,15 @@ import {
 import { CAMERA, GAME, QUALITY, TACTICAL, type QualityPreset } from '../core/config';
 import { clamp } from '../core/math';
 import { COUNTRY_BY_ID } from '../data/countries';
-import { CITIES } from '../data/cities';
+import { GEOGRAPHY, normalisedCentroid } from '../geo';
 import { buildGlobeGeometry, type GlobeGeometry } from './globeGeography';
 import { CameraRig } from './CameraRig';
 import { ArmyMarkers, type ArmyMarkerSpec } from './ArmyMarkers';
-import { RegionMarkers, type RegionMarkerSpec } from './RegionMarkers';
+import { RegionLayer } from './RegionLayer';
+import { CityLayer } from './CityLayer';
 import { UnitLayer } from './units/UnitLayer';
 import { ProjectileLayer } from './ProjectileLayer';
-import type { BattleProjectileView, UnitTokenView } from '../game/types';
+import type { BattleProjectileView, MapLayerId, MapRegionView, UnitTokenView } from '../game/types';
 import { PALETTE } from './theme';
 
 /**
@@ -77,10 +78,10 @@ export class GlobeRenderer {
   private readonly highlightGroup = new Group();
   private readonly ocean: Mesh;
   private readonly atmosphere: ShaderMaterial;
-  private readonly cityPoints: Points;
   private readonly stars: Points;
   private readonly armyMarkers = new ArmyMarkers();
-  private readonly regionMarkers = new RegionMarkers();
+  private readonly regionLayer = new RegionLayer();
+  private readonly cityLayer = new CityLayer();
   private readonly unitLayer = new UnitLayer();
   private readonly projectileLayer = new ProjectileLayer();
   private readonly raycaster = new Raycaster();
@@ -187,11 +188,9 @@ export class GlobeRenderer {
     this.stars = this.createStars(QUALITY[this.quality].starCount);
     this.scene.add(this.stars);
 
-    this.cityPoints = this.createCityPoints();
-    this.scene.add(this.cityPoints);
-
     this.scene.add(this.armyMarkers.object);
-    this.scene.add(this.regionMarkers.object);
+    this.scene.add(this.regionLayer.object);
+    this.scene.add(this.cityLayer.object);
     this.scene.add(this.unitLayer.object);
     this.scene.add(this.projectileLayer.object);
 
@@ -297,40 +296,6 @@ export class GlobeRenderer {
     return points;
   }
 
-  private createCityPoints(): Points {
-    const positions = new Float32Array(CITIES.length * 3);
-    const colors = new Float32Array(CITIES.length * 3);
-    const color = new Color();
-    for (let index = 0; index < CITIES.length; index += 1) {
-      const city = CITIES[index];
-      const phi = (city.position[1] * Math.PI) / 180;
-      const lambda = (city.position[0] * Math.PI) / 180;
-      const radius = R * 1.016;
-      positions[index * 3] = radius * Math.cos(phi) * Math.sin(lambda);
-      positions[index * 3 + 1] = radius * Math.sin(phi);
-      positions[index * 3 + 2] = radius * Math.cos(phi) * Math.cos(lambda);
-      color.copy(city.tier === 1 ? PALETTE.cityCapital : PALETTE.city);
-      colors[index * 3] = color.r;
-      colors[index * 3 + 1] = color.g;
-      colors[index * 3 + 2] = color.b;
-    }
-    const geometry = new BufferGeometry();
-    geometry.setAttribute('position', new BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new BufferAttribute(colors, 3));
-    const material = new PointsMaterial({
-      size: 0.075,
-      sizeAttenuation: true,
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.95,
-      depthWrite: false,
-      blending: AdditiveBlending,
-    });
-    const points = new Points(geometry, material);
-    points.visible = false;
-    return points;
-  }
-
   // ── Interaction ─────────────────────────────────────────────────────────────
 
   rotate(deltaX: number, deltaY: number): void {
@@ -359,9 +324,13 @@ export class GlobeRenderer {
     this.armyMarkers.setArmies(markers);
   }
 
-  /** Province overlay for the strategic map. */
-  setRegions(markers: RegionMarkerSpec[]): void {
-    this.regionMarkers.setRegions(markers);
+  /** Batched province territory with the active map layer. */
+  setRegionVisuals(regions: MapRegionView[], layer: MapLayerId): void {
+    this.regionLayer.setVisuals(regions, layer);
+  }
+
+  setSelectedRegion(regionId: string | null): void {
+    this.regionLayer.setSelected(regionId);
   }
 
   /** Projects every visible military token (strategic or battlefield). */
@@ -481,15 +450,51 @@ export class GlobeRenderer {
   }
 
   pick(clientX: number, clientY: number): string | null {
-    if (!this.prepareRay(clientX, clientY)) return null;
+    return this.pickAt(clientX, clientY).countryId;
+  }
+
+  /** One raycast resolves both country and province from the merged surface. */
+  pickAt(clientX: number, clientY: number): { countryId: string | null; regionId: string | null } {
+    if (!this.prepareRay(clientX, clientY)) return { countryId: null, regionId: null };
     const hits = this.raycaster.intersectObject(this.surfaceMesh, false);
-    if (hits.length === 0) return null;
+    if (hits.length === 0) return { countryId: null, regionId: null };
     const hit = hits[0];
-    if (!hit.face) return null;
-    const attribute = this.geometry.surface.getAttribute('countryIndex');
-    if (!attribute) return null;
-    const index = Math.round(attribute.getX(hit.face.a));
-    return this.geometry.countryIds[index] ?? null;
+    if (!hit.face) return { countryId: null, regionId: null };
+    const countryAttribute = this.geometry.surface.getAttribute('countryIndex');
+    const regionAttribute = this.geometry.surface.getAttribute('regionIndex');
+    const countryIndex = countryAttribute ? Math.round(countryAttribute.getX(hit.face.a)) : -1;
+    const regionIndex = regionAttribute ? Math.round(regionAttribute.getX(hit.face.a)) : -1;
+    return {
+      countryId: this.geometry.countryIds[countryIndex] ?? null,
+      regionId: regionIndex >= 0 ? (this.geometry.regionIds[regionIndex] ?? null) : null,
+    };
+  }
+
+  /** Frames a province at region altitude using its real extent. */
+  frameRegion(regionId: string): void {
+    const region = GEOGRAPHY.region(regionId);
+    if (!region) return;
+    const [lon, lat] = normalisedCentroid(region);
+    const lonSpan = Math.abs(region.bounds.maxLon - region.bounds.minLon) * Math.max(0.3, Math.cos((lat * Math.PI) / 180));
+    const latSpan = Math.abs(region.bounds.maxLat - region.bounds.minLat);
+    const spanKm = Math.hypot(lonSpan, latSpan) * 111;
+    const altitude = clamp(spanKm / 7000, 0.035, 0.85);
+    const [currentLon, currentLat] = this.rig.focusLonLat;
+    const angularDistance = Math.hypot(
+      Math.abs(((lon - currentLon + 540) % 360) - 180),
+      lat - currentLat,
+    );
+    if (angularDistance > 20) this.rig.snap(lon, lat, altitude);
+    else this.rig.flyTo(lon, lat, altitude);
+  }
+
+  /** Objective focus: a province when the objective names one, region altitude otherwise. */
+  frameObjective(lon: number, lat: number, regionId: string | null): void {
+    if (regionId) {
+      this.frameRegion(regionId);
+      return;
+    }
+    this.rig.flyTo(lon, lat, 0.22);
   }
 
   /** Projects a geographic point to CSS pixel coordinates. */
@@ -547,10 +552,8 @@ export class GlobeRenderer {
 
       const altitude = this.rig.altitudeRatio;
       this.detailUniform.value = this.rig.detailFactor;
-      this.cityPoints.visible = this.cityMarkersEnabled && altitude < 0.34;
-      (this.cityPoints.material as PointsMaterial).size = clamp(0.035 + altitude * 0.12, 0.035, 0.12);
+      this.cityLayer.update(altitude, this.cityMarkersEnabled);
       this.armyMarkers.update(clamp(altitude * 1.15, 0.5, 2.1));
-      this.regionMarkers.update(clamp(altitude * 1.15, 0.5, 2.1));
       this.ocean.lookAt(this.rig.camera.position);
       this.stars.rotation.y += deltaSeconds * 0.0025;
 
@@ -584,6 +587,8 @@ export class GlobeRenderer {
     for (const geometry of this.geometry.outlines.values()) geometry.dispose();
     this.surfaceMaterial.dispose();
     this.armyMarkers.dispose();
+    this.regionLayer.dispose();
+    this.cityLayer.dispose();
     this.unitLayer.dispose();
     this.projectileLayer.dispose();
     this.renderer.dispose();

@@ -325,7 +325,7 @@ export const fa: Messages = {
   'settings.reset': 'بازنشانی تنظیمات',
   'settings.save': 'انجام شد',
   'settings.about': 'درباره این نسخه',
-  'settings.aboutBody': 'گام سه — یگان‌های سه‌بعدی، آرایش‌ها، هدف‌گیری، جنگ‌افزارها و میدان‌های نبرد زمان‌واقعی روی لایه راهبردی.',
+  'settings.aboutBody': 'گام پنج — نقشه راهبردی جغرافیایی با مرزهای واقعی کشورها، قلمرو استان‌ها، لایه‌های نقشه، شهرها، فرودگاه‌ها، بندرها، مسیریابی ارتش با A* و شبکه تدارکات منطقه‌ای.',
 
   'dialog.pause': 'کارزار متوقف شد',
   'dialog.resume': 'ادامه',
@@ -504,4 +504,30 @@ export const fa: Messages = {
 
   'notify.constructionStart': 'آغاز ساخت: {project}',
   'notify.constructionDone': 'پایان ساخت: {project}',
+
+  'layer.title': 'لایه نقشه',
+  'layer.political': 'سیاسی',
+  'layer.terrain': 'زمین',
+  'layer.population': 'جمعیت',
+  'layer.economy': 'اقتصاد',
+  'layer.resources': 'منابع',
+  'layer.infrastructure': 'زیرساخت',
+  'layer.supply': 'تدارکات',
+  'layer.military': 'نظامی',
+  'layer.diplomacy': 'دیپلماسی',
+  'layer.objectives': 'اهداف',
+
+  'territory.owner': 'مالک',
+  'territory.industry': 'سهم صنعت',
+  'territory.supply': 'تدارکات',
+  'territory.foreign': 'قلمرو خارجی {owner}.',
+  'territory.inspectOnMap': 'تمرکز روی نقشه',
+  'territory.cities': 'شهرها',
+  'territory.noCities': 'هیچ شهر ثبت‌شده‌ای در این منطقه نیست.',
+  'territory.infrastructurePoints': 'فرودگاه‌ها و بندرها',
+  'territory.armies': 'حضور نظامی',
+  'territory.neighbours': 'مناطق همجوار',
+
+  'military.followObjective': 'حرکت به سوی هدف',
+  'military.routePending': 'مسیر برنامه‌ریزی‌شده: {count} گام',
 };

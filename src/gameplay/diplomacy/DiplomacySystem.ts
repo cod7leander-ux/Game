@@ -179,7 +179,7 @@ export class DiplomacySystem {
     if (a.id === b.id) return false;
     const ra = ensureRelation(a, b.id, day);
     const rb = ensureRelation(b, a.id, day);
-    if (ra.atWar || rb.atWar || ra.ally) return false;
+    if (ra.atWar || rb.atWar || ra.ally || rb.ally) return false;
     if (ra.value < 35 || ra.trust < 10) return false;
     if (!this.spend(a, DIPLOMACY_COST.alliance)) return false;
 
@@ -248,7 +248,7 @@ export class DiplomacySystem {
     if (a.id === b.id) return false;
     const ra = ensureRelation(a, b.id, day);
     const rb = ensureRelation(b, a.id, day);
-    if (ra.atWar || rb.atWar || ra.ally || ra.nonAggression) return false;
+    if (ra.atWar || rb.atWar || ra.ally || rb.ally || ra.nonAggression) return false;
     if (!this.spend(a, DIPLOMACY_COST.nonAggression)) return false;
     ra.nonAggression = true;
     rb.nonAggression = true;

@@ -1,7 +1,13 @@
 import { create } from 'zustand';
 import { GameSession } from '../game/GameSession';
 import { previewCountry } from '../game/preview';
-import type { CountryBrief, CampaignDifficulty, PlayerSnapshot } from '../game/types';
+import type {
+  CountryBrief,
+  CampaignDifficulty,
+  MapLayerId,
+  PlayerSnapshot,
+} from '../game/types';
+import { GEOGRAPHY, normalisedCentroid } from '../geo';
 import { saveManager } from '../save/SaveManager';
 import type { SaveSlotId, SaveSummary } from '../save/types';
 import type { FormationType } from '../gameplay/tactical/types';
@@ -44,6 +50,13 @@ export interface ArmyFocusRequest {
   nonce: number;
 }
 
+export interface RegionFocusRequest {
+  regionId: string;
+  lon: number;
+  lat: number;
+  nonce: number;
+}
+
 export interface Toast {
   id: number;
   message: string;
@@ -59,6 +72,7 @@ interface AppState {
   selectedCountryId: string | null;
   hoveredCountryId: string | null;
   selectedRegionId: string | null;
+  mapLayer: MapLayerId;
   inspectedBrief: CountryBrief | null;
   session: GameSession | null;
   snapshot: PlayerSnapshot | null;
@@ -69,6 +83,7 @@ interface AppState {
   cameraFocus: CameraFocusRequest | null;
   battleFocus: BattleFocusRequest | null;
   armyFocus: ArmyFocusRequest | null;
+  regionFocus: RegionFocusRequest | null;
   pausedFromSpeed: 1 | 2 | 4;
 
   goToMenu: () => void;
@@ -86,6 +101,8 @@ interface AppState {
   selectRegion: (regionId: string | null) => void;
   hoverCountry: (countryId: string | null) => void;
   focusCountryCamera: (countryId: string) => void;
+  focusRegionCamera: (regionId: string) => void;
+  setMapLayer: (layer: MapLayerId) => void;
 
   startCampaign: (countryId: string, difficulty: CampaignDifficulty) => void;
   returnToMenu: () => void;
@@ -104,6 +121,7 @@ interface AppState {
   startResearch: (techId: string) => void;
   queueUnit: (unitId: string) => void;
   marchArmy: (armyId: string, targetId: string) => void;
+  orderArmyMove: (armyId: string, targetId: string) => void;
   declareWar: (targetId: string) => void;
   makePeace: (targetId: string) => void;
   startConstruction: (projectId: string, regionId: string) => void;
@@ -146,6 +164,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   selectedCountryId: null,
   hoveredCountryId: null,
   selectedRegionId: null,
+  mapLayer: 'political',
   inspectedBrief: null,
   session: null,
   snapshot: null,
@@ -156,6 +175,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   cameraFocus: null,
   battleFocus: null,
   armyFocus: null,
+  regionFocus: null,
   pausedFromSpeed: 1,
 
   goToMenu: () => set({ phase: 'menu', dialog: 'none', selectedCountryId: null, hoveredCountryId: null }),
@@ -241,6 +261,15 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   focusCountryCamera: (countryId) =>
     set({ cameraFocus: { countryId, nonce: Date.now() + Math.random() } }),
+
+  focusRegionCamera: (regionId) => {
+    const region = GEOGRAPHY.region(regionId);
+    if (!region) return;
+    const [lon, lat] = normalisedCentroid(region);
+    set({ regionFocus: { regionId, lon, lat, nonce: Date.now() + Math.random() } });
+  },
+
+  setMapLayer: (mapLayer) => set({ mapLayer }),
 
   startCampaign: (countryId, difficulty) => {
     const locale = useSettingsStore.getState().locale;
@@ -440,6 +469,22 @@ export const useAppStore = create<AppState>()((set, get) => ({
     const locale = useSettingsStore.getState().locale;
     get().showToast(
       message('military.marchStarted', { days: formatNumber(result.days, locale) }),
+      'info',
+    );
+    set({ snapshot: session.snapshot() });
+  },
+
+  orderArmyMove: (armyId, targetId) => {
+    const session = get().session;
+    if (!session) return;
+    const result = session.orderArmyMove(armyId, targetId);
+    if (!result.ok) {
+      get().showToast(message('military.marchFailed'), 'warning');
+      return;
+    }
+    const locale = useSettingsStore.getState().locale;
+    get().showToast(
+      message('military.marchStarted', { days: formatNumber(Math.max(1, result.days), locale) }),
       'info',
     );
     set({ snapshot: session.snapshot() });

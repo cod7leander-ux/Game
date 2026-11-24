@@ -1,4 +1,5 @@
 import type { PlayerSnapshot } from '../../game/types';
+import { useAppStore } from '../../state/appStore';
 import { useI18n } from '../hooks/useI18n';
 
 /**
@@ -10,6 +11,8 @@ import { useI18n } from '../hooks/useI18n';
  */
 export function LogisticsPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
   const { t: tr, n, percent } = useI18n();
+  const focusRegionCamera = useAppStore((state) => state.focusRegionCamera);
+  const focusArmyCamera = useAppStore((state) => state.focusArmyCamera);
   const supply = snapshot.logistics;
 
   return (
@@ -93,6 +96,20 @@ export function LogisticsPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
                 <span className="muted">
                   {objective.targetName ?? '—'} · {percent(objective.priority)}
                 </span>
+                {objective.target && (
+                  <button
+                    type="button"
+                    className="btn btn--small"
+                    onClick={() => {
+                      const target = objective.target;
+                      if (!target) return;
+                      if (target.regionId) focusRegionCamera(target.regionId);
+                      else focusArmyCamera(target.lon, target.lat);
+                    }}
+                  >
+                    {tr('territory.inspectOnMap')}
+                  </button>
+                )}
               </li>
             ))}
           </ul>

@@ -11,7 +11,9 @@ import type { LocaleCode } from '../i18n/types';
 import type { CountryState, NotificationEntry } from '../gameplay/country/types';
 import { Simulation } from '../gameplay/Simulation';
 import type { SimEvent } from '../gameplay/events';
-import type { MarchResult } from '../gameplay/military/ArmySystem';
+import type { MarchResult, StrategicMoveResult } from '../gameplay/military/ArmySystem';
+import type { StrategicPath } from '../gameplay/pathfinding/Pathfinder';
+import { GEOGRAPHY } from '../geo';
 import type { FormationType } from '../gameplay/tactical/types';
 import { World } from '../gameplay/World';
 import type { MessageKey } from '../i18n/locales/en';
@@ -180,6 +182,15 @@ export class GameSession {
 
   marchArmy(armyId: string, targetId: string): MarchResult {
     return this.simulation.marchArmy(this.world.playerCountryId, armyId, targetId);
+  }
+
+  /** Orders an army to a country or region along the cheapest legal route. */
+  orderArmyMove(armyId: string, targetId: string): StrategicMoveResult {
+    return this.simulation.marchArmyTo(this.world.playerCountryId, armyId, targetId);
+  }
+
+  planArmyRoute(armyId: string, targetId: string): StrategicPath | null {
+    return this.simulation.planArmyRoute(this.world.playerCountryId, armyId, targetId);
   }
 
   declareWar(targetId: string): boolean {
@@ -554,6 +565,11 @@ export class GameSession {
         day: this.clock.day,
         playerCountryId: this.world.playerCountryId,
         countries: [...this.world.countries.values()],
+        geography: {
+          provider: GEOGRAPHY.id,
+          regionSource: GEOGRAPHY.regionSource,
+          version: 1,
+        },
       },
       clock: {
         day: this.clock.day,

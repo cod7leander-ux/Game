@@ -3,7 +3,7 @@ import type { CountryState, NotificationEntry } from '../gameplay/country/types'
 import type { SavedTacticalBattle } from '../gameplay/tactical/types';
 
 /** Bump when the saved shape changes; add a migration in migrations.ts. */
-export const CURRENT_SAVE_VERSION = 4;
+export const CURRENT_SAVE_VERSION = 5;
 
 export const SAVE_SLOT_IDS = ['auto', '1', '2', '3', '4', '5'] as const;
 export type SaveSlotId = (typeof SAVE_SLOT_IDS)[number];
@@ -25,6 +25,15 @@ export interface SavedWorld {
   day: number;
   playerCountryId: string;
   countries: CountryState[];
+  /**
+   * Geographic dataset reference, never raw geometry. A save is only valid for
+   * the provider it was created with; geometry itself lives in the data layer.
+   */
+  geography?: {
+    provider: string;
+    regionSource: string;
+    version: number;
+  };
 }
 
 export interface SavedClock {

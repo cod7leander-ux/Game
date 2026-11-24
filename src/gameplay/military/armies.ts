@@ -1,5 +1,6 @@
 import { clamp } from '../../core/math';
 import { COUNTRY_BY_ID } from '../../data/countries';
+import { capitalRegionOf } from '../../data/regions';
 import { getUnit } from '../../data/units';
 import type { CountryState } from '../country/types';
 import type { FormationType } from '../tactical/types';
@@ -26,6 +27,12 @@ export interface Army {
   /** Display ordinal within the country (1st Army, 2nd Army…). */
   ordinal: number;
   locationId: string;
+  /** Geographic region the army currently stands in (anchor for routing). */
+  regionId: string;
+  /** Remaining country hops of a strategic route, in order. */
+  route: string[];
+  /** Region the route was planned to reach, if any. */
+  routeTargetId: string | null;
   /** unitId → formations. */
   composition: Record<string, number>;
   movement: ArmyMovement | null;
@@ -78,6 +85,9 @@ export const createArmy = (
   id: `${countryId}-A${ordinal}`,
   ordinal,
   locationId,
+  regionId: capitalRegionOf(locationId)?.id ?? `${locationId}-R1`,
+  route: [],
+  routeTargetId: null,
   composition: { ...composition },
   movement: null,
   formation: 'line',

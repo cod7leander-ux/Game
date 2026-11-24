@@ -1,8 +1,13 @@
 import {
+  BufferAttribute,
+  BufferGeometry,
   Color,
   ConeGeometry,
   DynamicDrawUsage,
+  Group,
   InstancedMesh,
+  LineBasicMaterial,
+  LineSegments,
   MeshBasicMaterial,
   Object3D,
   Vector3,
@@ -22,6 +27,14 @@ export interface ArmyMarkerSpec {
   lon: number;
   lat: number;
   tone: 'player' | 'enemy' | 'ally';
+  /** 0..1 relative strength, scales the marker. */
+  strength?: number;
+  /** 0..1 supply, desaturates the marker when unsupplied. */
+  supply?: number;
+  moving?: boolean;
+  /** Destination of the current march, for the route line. */
+  toLon?: number | null;
+  toLat?: number | null;
 }
 
 const MAX_MARKERS = 512;
@@ -34,7 +47,17 @@ const TONES: Record<ArmyMarkerSpec['tone'], string> = {
 };
 
 export class ArmyMarkers {
-  readonly object: InstancedMesh;
+  readonly object = new Group();
+  private readonly mesh: InstancedMesh;
+  private readonly routeGeometry = new BufferGeometry();
+  private readonly routeMaterial = new LineBasicMaterial({
+    color: '#8fd8ff',
+    transparent: true,
+    opacity: 0.35,
+    depthWrite: false,
+  });
+  private readonly routeLines: LineSegments;
+  private readonly routePositions = new Float32Array(MAX_MARKERS * 6);
   private readonly geometry = new ConeGeometry(0.05, 0.16, 4);
   private readonly material = new MeshBasicMaterial({ toneMapped: false, transparent: true, opacity: 0.95 });
   private readonly dummy = new Object3D();
@@ -45,11 +68,20 @@ export class ArmyMarkers {
   private markers: ArmyMarkerSpec[] = [];
 
   constructor() {
-    this.object = new InstancedMesh(this.geometry, this.material, MAX_MARKERS);
-    this.object.count = 0;
-    this.object.frustumCulled = false;
-    this.object.instanceMatrix.setUsage(DynamicDrawUsage);
-    this.object.renderOrder = 4;
+    this.mesh = new InstancedMesh(this.geometry, this.material, MAX_MARKERS);
+    this.mesh.count = 0;
+    this.mesh.frustumCulled = false;
+    this.mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+    this.mesh.renderOrder = 4;
+    this.routeGeometry.setAttribute(
+      'position',
+      new BufferAttribute(this.routePositions, 3),
+    );
+    this.routeGeometry.setDrawRange(0, 0);
+    this.routeLines = new LineSegments(this.routeGeometry, this.routeMaterial);
+    this.routeLines.frustumCulled = false;
+    this.routeLines.renderOrder = 3;
+    this.object.add(this.mesh, this.routeLines);
   }
 
   setArmies(markers: ArmyMarkerSpec[]): void {
@@ -60,8 +92,10 @@ export class ArmyMarkers {
   /** Called each frame; `scale` follows the camera altitude. */
   update(scale: number): void {
     const count = this.markers.length;
+    let routes = 0;
     if (count === 0) {
-      this.object.count = 0;
+      this.mesh.count = 0;
+      this.routeGeometry.setDrawRange(0, 0);
       return;
     }
 
@@ -86,22 +120,47 @@ export class ArmyMarkers {
         .addScaledVector(this.east, (column - 1) * spread)
         .addScaledVector(this.north, (row - 1) * spread * 0.8);
       this.dummy.quaternion.setFromUnitVectors(UP, this.normal);
-      this.dummy.scale.setScalar(scale);
+      this.dummy.scale.setScalar(scale * (0.78 + Math.min(1.4, marker.strength ?? 1) * 0.32));
       this.dummy.updateMatrix();
-      this.object.setMatrixAt(index, this.dummy.matrix);
+      this.mesh.setMatrixAt(index, this.dummy.matrix);
 
       this.color.set(TONES[marker.tone] ?? TONES.player);
-      this.object.setColorAt(index, this.color);
+      // Unsupplied armies read as faded and reddish.
+      this.color.lerp(new Color('#6b2323'), (1 - (marker.supply ?? 1)) * 0.55);
+      this.mesh.setColorAt(index, this.color);
+
+      // March destination line: start at the marker, end at the next hop.
+      if (
+        marker.moving &&
+        typeof marker.toLon === 'number' &&
+        typeof marker.toLat === 'number'
+      ) {
+        const toPhi = (marker.toLat * Math.PI) / 180;
+        const toLambda = (marker.toLon * Math.PI) / 180;
+        const offset = (routes * 6);
+        this.routePositions[offset] = this.dummy.position.x;
+        this.routePositions[offset + 1] = this.dummy.position.y;
+        this.routePositions[offset + 2] = this.dummy.position.z;
+        this.routePositions[offset + 3] = R * 1.014 * Math.cos(toPhi) * Math.sin(toLambda);
+        this.routePositions[offset + 4] = R * 1.014 * Math.sin(toPhi);
+        this.routePositions[offset + 5] = R * 1.014 * Math.cos(toPhi) * Math.cos(toLambda);
+        routes += 1;
+      }
     }
 
-    this.object.count = count;
-    this.object.instanceMatrix.needsUpdate = true;
-    if (this.object.instanceColor) this.object.instanceColor.needsUpdate = true;
+    this.mesh.count = count;
+    this.mesh.instanceMatrix.needsUpdate = true;
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    this.routeGeometry.setDrawRange(0, routes * 2);
+    this.routeGeometry.getAttribute('position').needsUpdate = true;
+    this.routeLines.visible = routes > 0;
   }
 
   dispose(): void {
     this.geometry.dispose();
     this.material.dispose();
-    this.object.dispose();
+    this.mesh.dispose();
+    this.routeGeometry.dispose();
+    this.routeMaterial.dispose();
   }
 }
