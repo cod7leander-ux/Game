@@ -3,9 +3,9 @@
 export const GAME = {
   /** Title and branding. */
   title: 'Terra Dominion',
-  version: '0.5.0',
+  version: '0.6.0',
   /** Bumped whenever the save payload shape changes. Migrations live in src/save/migrations.ts. */
-  saveVersion: 5,
+  saveVersion: 6,
   /** World radius in scene units. All globe math is expressed as a fraction of this. */
   globeRadius: 10,
   /** Real milliseconds that make one in-game day at 1x speed. */

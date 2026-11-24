@@ -156,6 +156,58 @@ export class DiplomacySystem {
     return true;
   }
 
+  /**
+   * Makes two countries belligerent without creating a new war entity.
+   * Used when an ally joins an existing multi-country war.
+   */
+  joinWar(country: CountryState, enemy: CountryState, day: number): boolean {
+    if (country.id === enemy.id) return false;
+    const a = ensureRelation(country, enemy.id, day);
+    const b = ensureRelation(enemy, country.id, day);
+    if (a.atWar && b.atWar) return false;
+    a.atWar = true;
+    a.ally = false;
+    a.nonAggression = false;
+    a.militaryAccess = false;
+    a.tradePartner = false;
+    a.embargo = false;
+    a.value = Math.min(a.value, -60);
+    a.lastChangeDay = day;
+    b.atWar = true;
+    b.ally = false;
+    b.nonAggression = false;
+    b.militaryAccess = false;
+    b.tradePartner = false;
+    b.value = Math.min(b.value, -60);
+    b.threat = clamp(b.threat + 30, 0, 100);
+    b.lastChangeDay = day;
+    removeFrom(country.diplomacy.allies, enemy.id);
+    removeFrom(enemy.diplomacy.allies, country.id);
+    removeFrom(country.diplomacy.tradePartners, enemy.id);
+    removeFrom(enemy.diplomacy.tradePartners, country.id);
+    removeFrom(country.diplomacy.nonAggressionPartners, enemy.id);
+    removeFrom(enemy.diplomacy.nonAggressionPartners, country.id);
+    removeFrom(country.diplomacy.militaryAccessPartners, enemy.id);
+    removeFrom(enemy.diplomacy.militaryAccessPartners, country.id);
+    addOnce(country.diplomacy.wars, enemy.id);
+    addOnce(enemy.diplomacy.wars, country.id);
+    return true;
+  }
+
+  /** Clears a bilateral war as part of a multi-country peace, without a new event. */
+  endWarPair(a: CountryState, b: CountryState, day: number): void {
+    const ra = ensureRelation(a, b.id, day);
+    const rb = ensureRelation(b, a.id, day);
+    ra.atWar = false;
+    rb.atWar = false;
+    ra.value = Math.max(ra.value, -10);
+    rb.value = Math.max(rb.value, -10);
+    ra.lastChangeDay = day;
+    rb.lastChangeDay = day;
+    removeFrom(a.diplomacy.wars, b.id);
+    removeFrom(b.diplomacy.wars, a.id);
+  }
+
   signPeace(a: CountryState, b: CountryState, day: number): boolean {
     const ra = ensureRelation(a, b.id, day);
     const rb = ensureRelation(b, a.id, day);

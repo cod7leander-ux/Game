@@ -20,6 +20,7 @@ const LAYERS: Array<{ id: MapLayerId; labelKey: MessageKey; glyph: string }> = [
   { id: 'military', labelKey: 'layer.military', glyph: '⚔' },
   { id: 'diplomacy', labelKey: 'layer.diplomacy', glyph: '✧' },
   { id: 'objectives', labelKey: 'layer.objectives', glyph: '◎' },
+  { id: 'frontline', labelKey: 'layer.frontline', glyph: '⚑' },
 ];
 
 export function MapLayerBar() {

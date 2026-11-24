@@ -25,6 +25,19 @@ import { tacticalProfileOrFallback, weaponsOf } from '../data/tacticalProfiles';
 import type { TacticalBattle } from '../gameplay/tactical/TacticalBattle';
 import { TACTICAL } from '../core/config';
 import type { World } from '../gameplay/World';
+import { findRegionState } from '../gameplay/war/WarSystem';
+import type {
+  AirView,
+  ArmyGroupView,
+  FrontlineView,
+  MissileView,
+  NavalView,
+  OperationView,
+  PeaceOfferView,
+  WarGoalView,
+  WarfareView,
+  WarView,
+} from './types';
 import type { NotificationEntry, CountryState } from '../gameplay/country/types';
 import type {
   ArmyMarkerView,
@@ -215,12 +228,22 @@ const buildRegionView = (
         return neighbour ? localize(neighbour.name, locale) : id;
       }),
     armies,
-    occupiedBy: owner.occupierId
+    occupiedBy: region.controllerId
       ? (() => {
-          const occupier = COUNTRY_BY_ID[owner.occupierId!];
-          return occupier ? localize(occupier.name, locale) : owner.occupierId;
+          const occupier = COUNTRY_BY_ID[region.controllerId!];
+          return occupier ? localize(occupier.name, locale) : region.controllerId;
         })()
       : null,
+    controllerId: region.controllerId ?? owner.id,
+    controllerName: (() => {
+      const controller = COUNTRY_BY_ID[region.controllerId ?? owner.id];
+      return controller ? localize(controller.name, locale) : region.controllerId ?? owner.id;
+    })(),
+    controlStatus: region.controlStatus ?? 'controlled',
+    occupationProgress: region.occupationProgress ?? 0,
+    resistance: region.resistance ?? 0,
+    frontlineId: region.frontlineId ?? null,
+    airDefense: region.airDefense ?? 0,
     gdpShare,
   };
 };
@@ -308,6 +331,17 @@ const buildMapRegionViews = (
       const [lon, lat] = geo
         ? normalisedCentroid(geo)
         : [regionDefinition.position[0], regionDefinition.position[1]];
+      const controllerId = region.controllerId ?? country.id;
+      const controller = world.get(controllerId);
+      const regionTone =
+        controllerId !== country.id
+          ? controllerId === player.id
+            ? 'player'
+            : controller && areAtWar(player, controller)
+              ? 'enemy'
+              : 'occupied'
+          : tone;
+      const front = region.frontlineId ? world.frontlines[region.frontlineId] : undefined;
       views.push({
         id: region.id,
         countryId: country.id,
@@ -315,7 +349,7 @@ const buildMapRegionViews = (
         lat,
         terrain: regionDefinition.terrain,
         terrainColor: terrain.color,
-        tone,
+        tone: regionTone,
         selected: region.id === selectedRegionId,
         population: Math.min(1, region.population / maxPopulation),
         economy: Math.min(1, output / maxEconomy),
@@ -327,11 +361,19 @@ const buildMapRegionViews = (
         resourceId: bestResource?.id ?? null,
         resourceColor: bestResource ? RESOURCES[bestResource.id].color : null,
         resourceIntensity: bestResource ? Math.min(1, bestResource.value / 1.6) : 0,
-        occupied: Boolean(country.occupierId),
+        occupied: controllerId !== country.id || Boolean(country.occupierId),
         allied,
         atWar,
         ownerName: definition ? localize(definition.name, locale) : country.id,
         name: localize(regionDefinition.name, locale),
+        controllerId,
+        controllerName: (() => {
+          const entry = COUNTRY_BY_ID[controllerId];
+          return entry ? localize(entry.name, locale) : controllerId;
+        })(),
+        controlStatus: region.controlStatus ?? 'controlled',
+        frontlinePressure: front?.pressure ?? 0,
+        frontier: Boolean(region.frontlineId),
       });
     }
   }
@@ -442,6 +484,15 @@ const buildArmyViews = (
         : null,
       route: [...(army.route ?? [])],
       regionId: army.regionId ?? '',
+      posture: army.posture ?? 'defend',
+      commander: army.commander ?? '',
+      morale: army.morale ?? 0.8,
+      readiness: army.readiness ?? 0.75,
+      isolated: Boolean(army.isolated),
+      encircledDays: army.encircledDays ?? 0,
+      groupId: army.groupId ?? null,
+      frontlineId: army.frontlineId ?? null,
+      objectiveRegionId: army.objectiveRegionId ?? null,
     });
   }
   return views.sort((a, b) => a.ordinal - b.ordinal);
@@ -798,6 +849,276 @@ const buildWarnings = (country: CountryState, locale: LocaleCode): string[] => {
   return warnings;
 };
 
+const buildWarfareView = (
+  world: World,
+  player: CountryState,
+  locale: LocaleCode,
+): WarfareView => {
+  const warfare = player.warfare;
+  const nameOf = (id: string | null | undefined): string | null => {
+    if (!id) return null;
+    const entry = COUNTRY_BY_ID[id];
+    return entry ? localize(entry.name, locale) : id;
+  };
+  const regionName = (id: string | null | undefined): string | null => {
+    if (!id) return null;
+    const entry = regionAt(id);
+    return entry ? localize(entry.name, locale) : id;
+  };
+  const playerWars = Object.values(world.wars).filter(
+    (war) =>
+      war.status === 'active' &&
+      war.participants.some((entry) => entry.countryId === player.id && entry.leftDay === null),
+  );
+  const warIds = new Set(playerWars.map((war) => war.id));
+  const wars: WarView[] = playerWars.map((war) => {
+    const own = war.participants.find((entry) => entry.countryId === player.id);
+    const role = own?.side ?? 'observer';
+    const opponent = war.participants.find(
+      (entry) => entry.leftDay === null && entry.side !== own?.side,
+    );
+    const goals: WarGoalView[] = war.goals.map((goal) => ({
+      id: goal.id,
+      type: goal.type,
+      ownerId: goal.ownerId,
+      ownerName: nameOf(goal.ownerId) ?? goal.ownerId,
+      targetName: goal.targetRegionId ? regionName(goal.targetRegionId) : nameOf(goal.targetCountryId),
+      priority: goal.priority,
+      status: goal.status,
+      progress: goal.progress,
+    }));
+    return {
+      id: war.id,
+      startDay: war.startDay,
+      status: war.status,
+      role,
+      score: Math.round((role === 'defender' ? -war.score : war.score) * 10) / 10,
+      attackerScore: war.score,
+      exhaustion: war.exhaustion[role === 'defender' ? 'defender' : 'attacker'],
+      participants: war.participants.map((entry) => ({
+        id: entry.countryId,
+        name: nameOf(entry.countryId) ?? entry.countryId,
+        side: entry.side,
+        casualties: entry.casualties,
+        joinedDay: entry.joinedDay,
+      })),
+      goals,
+      fronts: war.fronts.length,
+      battles: war.battles,
+      occupiedRegions: war.occupiedRegions.length,
+      canOfferPeace: war.status === 'active' && role !== 'observer',
+      opponentId: opponent?.countryId ?? null,
+      opponentName: nameOf(opponent?.countryId ?? null),
+    };
+  });
+
+  const frontlines: FrontlineView[] = Object.values(world.frontlines)
+    .filter((front) => warIds.has(front.warId))
+    .map((front) => ({
+      id: front.id,
+      warId: front.warId,
+      attackerId: front.attackerId,
+      attackerName: nameOf(front.attackerId) ?? front.attackerId,
+      defenderId: front.defenderId,
+      defenderName: nameOf(front.defenderId) ?? front.defenderId,
+      regionIds: [...front.regionIds],
+      regionNames: front.regionIds
+        .map((id) => regionName(id))
+        .filter((name): name is string => Boolean(name)),
+      priority: front.priority,
+      attackerStrength: front.attackerStrength,
+      defenderStrength: front.defenderStrength,
+      attackerSupply: front.attackerSupply,
+      defenderSupply: front.defenderSupply,
+      pressure: front.pressure,
+      status: front.status,
+      objectiveRegionId: front.objectiveRegionId,
+      objectiveName: regionName(front.objectiveRegionId),
+    }));
+
+  const groups: ArmyGroupView[] = (warfare?.groups ?? []).map((group) => ({
+    id: group.id,
+    name: group.name,
+    memberArmyIds: [...group.memberArmyIds],
+    memberNames: group.memberArmyIds.map((id) => {
+      const army = player.military.armies.find((entry) => entry.id === id);
+      return army ? army.name : id;
+    }),
+    objectiveRegionId: group.primaryObjectiveRegionId,
+    objectiveName: regionName(group.primaryObjectiveRegionId),
+    frontlineId: group.frontlineId,
+    priority: group.priority,
+    posture: group.posture,
+  }));
+
+  const operations: OperationView[] = (warfare?.operations ?? [])
+    .filter((operation) => operation.status === 'active' || operation.status === 'completed')
+    .slice(-8)
+    .map((operation) => {
+      const controlled = operation.targetRegionIds.filter((id) => {
+        const state = findRegionState(world, id);
+        return state ? (state.controllerId ?? state.countryId) === player.id : false;
+      }).length;
+      return {
+        id: operation.id,
+        type: operation.type,
+        status: operation.status,
+        armyIds: [...operation.armyIds],
+        targetRegionIds: [...operation.targetRegionIds],
+        targetNames: operation.targetRegionIds
+          .map((id) => regionName(id))
+          .filter((name): name is string => Boolean(name)),
+        frontlineId: operation.frontlineId,
+        priority: operation.priority,
+        startDay: operation.startDay,
+        progress: controlled / Math.max(1, operation.targetRegionIds.length),
+      };
+    });
+
+  const air: AirView = {
+    superiority: warfare?.air.superiority ?? 0.5,
+    readiness: warfare?.air.readiness ?? 0.7,
+    coverage: warfare?.air.coverage ?? 0,
+    airStrength: countryAirStrength(player),
+    formations: countryAirFormations(player),
+    missions: (warfare?.air.missions ?? []).map((mission) => ({
+      id: mission.id,
+      type: mission.type,
+      targetRegionId: mission.targetRegionId,
+      targetName: regionName(mission.targetRegionId),
+      daysRemaining: mission.daysRemaining,
+      status: mission.status,
+    })),
+  };
+
+  const naval: NavalView = {
+    strength: countryNavalStrength(player),
+    formations: countryNavalFormations(player),
+    blockadeEffect: warfare?.naval.blockadeEffect ?? 0,
+    taskForces: (warfare?.naval.taskForces ?? []).map((force) => ({
+      id: force.id,
+      name: force.name,
+      role: force.role,
+      strength: force.strength,
+      readiness: force.readiness,
+      homePortName: regionName(force.homePortRegionId),
+      mission: force.mission,
+    })),
+    blockades: world.blockades
+      .filter(
+        (blockade) =>
+          blockade.active &&
+          (blockade.blockaderId === player.id || blockade.targetId === player.id),
+      )
+      .map((blockade) => ({
+        id: blockade.id,
+        blockaderId: blockade.blockaderId,
+        blockaderName: nameOf(blockade.blockaderId) ?? blockade.blockaderId,
+        targetId: blockade.targetId,
+        targetName: nameOf(blockade.targetId) ?? blockade.targetId,
+        effectiveness: blockade.effectiveness,
+        active: blockade.active,
+      })),
+  };
+
+  const missiles: MissileView = {
+    readiness: warfare?.missiles.readiness ?? 0.5,
+    stockpile: Object.entries(warfare?.missiles.stockpile ?? {}).map(([type, count]) => ({
+      type,
+      count: count ?? 0,
+    })),
+    cooldownDays: Math.max(
+      0,
+      (warfare?.missiles.cooldownUntilDay ?? 0) - world.day,
+    ),
+    lastTargetName: regionName(warfare?.missiles.lastTargetRegionId),
+  };
+
+  const peaceOffers: PeaceOfferView[] = world.peaceOffers
+    .filter(
+      (offer) =>
+        offer.status === 'pending' &&
+        (offer.proposerId === player.id || offer.recipientId === player.id),
+    )
+    .map((offer) => ({
+      id: offer.id,
+      warId: offer.warId,
+      proposerId: offer.proposerId,
+      proposerName: nameOf(offer.proposerId) ?? offer.proposerId,
+      recipientId: offer.recipientId,
+      recipientName: nameOf(offer.recipientId) ?? offer.recipientId,
+      day: offer.day,
+      status: offer.status,
+      terms: offer.terms.map((term) => {
+        const key = `war.term.${term.type}` as MessageKey;
+        const label = translate(locale, key);
+        const regions = term.regionIds
+          .map((id) => regionName(id))
+          .filter((name): name is string => Boolean(name))
+          .join(', ');
+        return regions ? `${label}: ${regions}` : label;
+      }),
+      canAccept: offer.recipientId === player.id,
+    }));
+
+  return {
+    wars,
+    frontlines,
+    groups,
+    operations,
+    air,
+    naval,
+    missiles,
+    peaceOffers,
+    plans: (warfare?.plans ?? [])
+      .filter((plan) => plan.status === 'active')
+      .map((plan) => ({
+        id: plan.id,
+        kind: plan.kind,
+        priority: plan.priority,
+        rationale: plan.rationale,
+        targetName: regionName(plan.targetRegionId) ?? nameOf(plan.targetCountryId),
+        status: plan.status,
+      })),
+  };
+};
+
+const countryAirStrength = (country: CountryState): number => {
+  let total = 0;
+  for (const [unitId, count] of Object.entries(country.military.formations)) {
+    const unit = getUnit(unitId);
+    if (unit?.domain === 'air') total += count * unit.tier;
+  }
+  return total;
+};
+
+const countryAirFormations = (country: CountryState): number => {
+  let total = 0;
+  for (const [unitId, count] of Object.entries(country.military.formations)) {
+    const unit = getUnit(unitId);
+    if (unit?.domain === 'air') total += count;
+  }
+  return total;
+};
+
+const countryNavalStrength = (country: CountryState): number => {
+  let total = 0;
+  for (const [unitId, count] of Object.entries(country.military.formations)) {
+    const unit = getUnit(unitId);
+    if (unit?.domain === 'naval') total += count * unit.tier;
+  }
+  return total;
+};
+
+const countryNavalFormations = (country: CountryState): number => {
+  let total = 0;
+  for (const [unitId, count] of Object.entries(country.military.formations)) {
+    const unit = getUnit(unitId);
+    if (unit?.domain === 'naval') total += count;
+  }
+  return total;
+};
+
 export const buildPlayerSnapshot = (input: SnapshotInput): PlayerSnapshot | null => {
   const country = input.world.get(input.world.playerCountryId);
   if (!country) return null;
@@ -885,10 +1206,8 @@ export const buildPlayerSnapshot = (input: SnapshotInput): PlayerSnapshot | null
     inspectedRegion: (() => {
       const regionId = input.selectedRegionId;
       if (!regionId) return null;
-      const definition = regionAt(regionId);
-      if (!definition) return null;
-      const owner = input.world.get(definition.countryId);
-      const state = owner?.regions.find((region) => region.id === regionId);
+      const state = findRegionState(input.world, regionId);
+      const owner = state ? input.world.get(state.countryId) : undefined;
       return owner && state
         ? buildRegionView(input.world, owner, state, locale, input.selectedRegionId)
         : null;
@@ -901,6 +1220,7 @@ export const buildPlayerSnapshot = (input: SnapshotInput): PlayerSnapshot | null
     },
     objectives: buildObjectives(country, locale),
     logistics: buildLogistics(country, locale),
+    warfare: buildWarfareView(input.world, country, locale),
     cities: citiesOf(country.id),
     warnings: buildWarnings(country, locale),
     notifications: input.notifications,

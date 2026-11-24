@@ -1,7 +1,7 @@
 import { Rng } from '../../core/rng';
 import { hashString } from '../../core/math';
 import { REGION_GEO_BY_ID } from '../../geo';
-import { capitalRegionOf, regionAt } from '../../data/regions';
+import { capitalRegionOf } from '../../data/regions';
 import type { CountryState } from '../country/types';
 import { areAtWar, canEnterTerritory } from '../diplomacy/helpers';
 import type { SimEventSink } from '../events';
@@ -17,7 +17,14 @@ import {
   type Army,
 } from './armies';
 import { resolveBattle, type BattleSide } from './combat';
-import { applyOccupation, terrainProfile } from '../regions/regions';
+import {
+  applyOccupation,
+  captureRegion,
+  liberateRegion,
+  regionControllerId,
+  terrainProfile,
+} from '../regions/regions';
+import { findRegionState } from '../war/WarSystem';
 import {
   strategicPathfinder,
   targetRegionForCountry,
@@ -105,7 +112,10 @@ export class ArmySystem {
     if (!targetRegionId || !targetRegion) return { ok: false, reason: 'unknownTarget' };
 
     const fromRegionId = anchorRegionOf(army);
-    const fromCountryId = REGION_GEO_BY_ID[fromRegionId]?.countryId ?? army.locationId;
+    const fromCountryId =
+      findRegionState(world, fromRegionId)?.countryId ??
+      REGION_GEO_BY_ID[fromRegionId]?.countryId ??
+      army.locationId;
     const path = this.pathfinder.find(world, {
       countryId,
       fromRegionId,
@@ -258,21 +268,30 @@ export class ArmySystem {
     army.locationId = target.id;
     // The army's regional anchor follows the route target when it belongs to the
     // country just reached, otherwise the destination capital.
-    const routeRegion = army.routeTargetId ? regionAt(army.routeTargetId) : undefined;
+    const routeRegion = army.routeTargetId ? findRegionState(world, army.routeTargetId) : undefined;
     army.regionId =
       routeRegion && routeRegion.countryId === target.id
         ? routeRegion.id
         : (capitalRegionOf(target.id)?.id ?? `${target.id}-R1`);
 
-    // A sovereign army re-entering its own land ends an occupation.
-    if (target.occupierId && target.occupierId !== country.id && country.id === target.id) {
-      applyOccupation(target, null);
-      target.stability = Math.min(0.95, target.stability + 0.05);
-      this.events.emit({ type: 'territoryLiberated', countryId: target.id, day });
+    // A sovereign army re-entering its own land ends a whole-country occupation
+    // or liberates the specific region it reached.
+    if (country.id === target.id) {
+      if (target.occupierId && target.occupierId !== country.id) {
+        applyOccupation(target, null);
+        target.stability = Math.min(0.95, target.stability + 0.05);
+        this.events.emit({ type: 'territoryLiberated', countryId: target.id, day });
+        return;
+      }
+      const reached = findRegionState(world, army.regionId);
+      if (reached && regionControllerId(reached) !== country.id) {
+        liberateRegion(reached);
+        this.events.emit({ type: 'regionLiberated', regionId: reached.id, ownerId: country.id, day });
+      }
       return;
     }
 
-    if (target.id === country.id || !areAtWar(country, target)) return;
+    if (!areAtWar(country, target)) return;
 
     const defenders = this.defendersAt(world, target, country.id);
     if (defenders.length > 0) {
@@ -280,7 +299,7 @@ export class ArmySystem {
       return;
     }
 
-    this.occupy(world, country, target, day);
+    this.occupy(world, country, target, day, army.regionId);
   }
 
   private defendersAt(world: World, target: CountryState, attackerId: string): BattleSide[] {
@@ -324,11 +343,20 @@ export class ArmySystem {
         roster: { ...side.army.composition },
       })),
     ];
+    const regionState = findRegionState(world, attackerArmy.regionId);
+    const attackerSupport = regionState?.airSupportFor === attackerCountry.id
+      ? regionState.airSupport
+      : 0;
+    const defenderSupport = regionState?.airSupportFor === target.id
+      ? regionState.airSupport
+      : 0;
     const result = resolveBattle(
       rng,
       { army: attackerArmy, country: attackerCountry },
       defenders,
       terrainProfile(target).defence,
+      attackerSupport,
+      defenderSupport,
     );
 
     // Surviving defenders fall back to their homeland, or are destroyed when
@@ -361,7 +389,7 @@ export class ArmySystem {
 
     if (result.attackerWon) {
       if (!attackerCountry.military.armies.includes(attackerArmy)) return;
-      this.occupy(world, attackerCountry, target, day);
+      this.occupy(world, attackerCountry, target, day, attackerArmy.regionId);
       return;
     }
 
@@ -388,7 +416,13 @@ export class ArmySystem {
     removeEmptyArmies(attackerCountry);
   }
 
-  private occupy(world: World, occupier: CountryState, target: CountryState, day: number): void {
+  private occupy(
+    world: World,
+    occupier: CountryState,
+    target: CountryState,
+    day: number,
+    regionId?: string,
+  ): void {
     if (target.id === occupier.id) return;
     if (target.occupierId === occupier.id) return;
     if (target.occupierId) {
@@ -396,6 +430,23 @@ export class ArmySystem {
       if (current && !areAtWar(occupier, current)) return;
     }
     if (!areAtWar(occupier, target)) return;
+
+    const reached = regionId ? findRegionState(world, regionId) : undefined;
+    const reachedId = reached?.countryId === target.id ? reached.id : target.capitalRegionId;
+    // Compatibility: capturing the capital still triggers country-level
+    // occupation. Other regions become controlled territory without changing
+    // sovereignty, which is the M6 region-level model.
+    if (reachedId && reachedId !== target.capitalRegionId) {
+      captureRegion(reached!, occupier.id, day);
+      this.events.emit({
+        type: 'regionCaptured',
+        regionId: reached!.id,
+        controllerId: occupier.id,
+        ownerId: target.id,
+        day,
+      });
+      return;
+    }
 
     applyOccupation(target, occupier.id);
     target.stability = Math.max(0.2, target.stability - 0.08);

@@ -10,6 +10,7 @@ import { createRelation } from './diplomacy/types';
 import { createCountryState } from './country/factory';
 import { recomputeModifiers } from './country/modifiers';
 import type { CountryDefinition, CountryState } from './country/types';
+import type { Blockade, Frontline, PeaceOffer, War } from './war/types';
 
 /**
  * Runtime container for every country in a campaign.
@@ -26,17 +27,41 @@ export interface WorldInit {
   day: number;
 }
 
+/** World-level war state restored from a save. */
+export interface WorldWarfareState {
+  wars?: War[];
+  frontlines?: Frontline[];
+  blockades?: Blockade[];
+  peaceOffers?: PeaceOffer[];
+}
+
 export class World {
   readonly seed: number;
   readonly playerCountryId: string;
   day: number;
   readonly countries = new Map<string, CountryState>();
+  /** Active and concluded wars, keyed by war id. */
+  readonly wars: Record<string, War> = {};
+  /** Frontlines rebuilt on simulation ticks, never per render frame. */
+  readonly frontlines: Record<string, Frontline> = {};
+  readonly blockades: Blockade[] = [];
+  readonly peaceOffers: PeaceOffer[] = [];
   private adjacency = new Map<string, string[]>();
 
-  constructor(init: WorldInit, restored?: CountryState[]) {
+  constructor(
+    init: WorldInit,
+    restored?: CountryState[],
+    restoredWarfare?: WorldWarfareState,
+  ) {
     this.seed = init.seed >>> 0;
     this.playerCountryId = init.playerCountryId;
     this.day = init.day;
+    if (restoredWarfare) {
+      for (const war of restoredWarfare.wars ?? []) this.wars[war.id] = war;
+      for (const front of restoredWarfare.frontlines ?? []) this.frontlines[front.id] = front;
+      this.blockades.push(...(restoredWarfare.blockades ?? []));
+      this.peaceOffers.push(...(restoredWarfare.peaceOffers ?? []));
+    }
     if (restored && restored.length > 0) {
       for (const state of restored) this.countries.set(state.id, state);
       this.buildAdjacency();

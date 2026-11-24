@@ -25,6 +25,18 @@ export const buildRegionStates = (
     unrest: 0,
     damage: 0,
     control: 'sovereign',
+    controllerId: null,
+    occupierId: null,
+    controlStatus: 'controlled',
+    occupationProgress: 0,
+    resistance: 0,
+    supplyModifier: 1,
+    frontlineId: null,
+    airDefense: 0,
+    airSupport: 0,
+    airSupportFor: null,
+    navalSupport: 0,
+    navalSupportFor: null,
     bonusOutput: {},
     industryBonus: 0,
     output: {},
@@ -181,8 +193,67 @@ export const applyOccupation = (
 ): void => {
   country.occupierId = occupierId;
   for (const region of country.regions) {
+    region.controllerId = occupierId;
+    region.occupierId = occupierId;
     region.control = occupierId ? 'occupied' : 'sovereign';
+    region.controlStatus = occupierId ? 'occupied' : 'controlled';
+    region.occupationProgress = occupierId ? 1 : 0;
+    region.resistance = occupierId ? Math.max(region.resistance, 0.35) : 0;
+    region.supplyModifier = occupierId ? 0.72 : 1;
   }
+};
+
+/** Country currently exercising military control over a region. */
+export const regionControllerId = (region: RegionState): string =>
+  region.controllerId ?? region.countryId;
+
+/** True when the region is controlled by someone other than its sovereign. */
+export const isRegionOccupied = (region: RegionState): boolean =>
+  Boolean(region.controllerId && region.controllerId !== region.countryId);
+
+/** Marks a region contested without changing sovereignty. */
+export const contestRegion = (
+  region: RegionState,
+  controllerId: string,
+  progress: number,
+): void => {
+  region.controllerId = controllerId;
+  region.occupierId = controllerId;
+  region.control = 'contested';
+  region.controlStatus = 'contested';
+  region.occupationProgress = clamp01(progress);
+  region.supplyModifier = 0.82;
+};
+
+/** Applies a completed regional capture. Ownership is untouched. */
+export const captureRegion = (
+  region: RegionState,
+  controllerId: string,
+  day: number,
+): void => {
+  if (region.countryId === controllerId) {
+    liberateRegion(region);
+    return;
+  }
+  region.controllerId = controllerId;
+  region.occupierId = controllerId;
+  region.control = 'occupied';
+  region.controlStatus = 'recentlyCaptured';
+  region.occupationProgress = 1;
+  region.resistance = Math.max(region.resistance, 0.2);
+  region.supplyModifier = 0.7;
+  void day;
+};
+
+/** Returns control to the sovereign owner. */
+export const liberateRegion = (region: RegionState): void => {
+  region.controllerId = null;
+  region.occupierId = null;
+  region.control = 'sovereign';
+  region.controlStatus = 'liberated';
+  region.occupationProgress = 0;
+  region.resistance = Math.max(0, region.resistance - 0.25);
+  region.supplyModifier = 1;
 };
 
 /** Applies war damage and unrest to all regions of a country. */

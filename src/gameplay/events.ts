@@ -46,7 +46,40 @@ export type SimEvent =
   | { type: 'territoryOccupied'; countryId: string; occupierId: string; day: number }
   | { type: 'territoryLiberated'; countryId: string; day: number }
   | { type: 'lowTreasury'; countryId: string; day: number }
-  | { type: 'aiDecision'; countryId: string; focus: string; day: number };
+  | { type: 'aiDecision'; countryId: string; focus: string; day: number }
+  | {
+      type: 'warStarted';
+      warId: string;
+      aggressorId: string;
+      defenderId: string;
+      day: number;
+    }
+  | {
+      type: 'allyJoinedWar';
+      warId: string;
+      countryId: string;
+      side: 'attacker' | 'defender';
+      day: number;
+    }
+  | { type: 'warScoreChanged'; warId: string; score: number; day: number }
+  | { type: 'warEnded'; warId: string; status: string; day: number }
+  | {
+      type: 'warGoalCompleted';
+      warId: string;
+      goalId: string;
+      countryId: string;
+      day: number;
+    }
+  | { type: 'regionCaptured'; regionId: string; controllerId: string; ownerId: string; day: number }
+  | { type: 'regionLiberated'; regionId: string; ownerId: string; day: number }
+  | { type: 'regionTransferred'; regionId: string; fromId: string; toId: string; day: number }
+  | { type: 'peaceOffered'; offerId: string; warId: string; day: number }
+  | { type: 'peaceAccepted'; offerId: string; warId: string; day: number }
+  | { type: 'frontlineChanged'; warId: string; fronts: number; day: number }
+  | { type: 'airMissionLaunched'; countryId: string; missionId: string; day: number }
+  | { type: 'navalBlockade'; blockaderId: string; targetId: string; effectiveness: number; day: number }
+  | { type: 'missileStrike'; countryId: string; targetRegionId: string; day: number }
+  | { type: 'operationCreated'; countryId: string; operationId: string; day: number };
 
 export interface SimEventSink {
   emit(event: SimEvent): void;

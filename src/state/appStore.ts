@@ -30,7 +30,8 @@ export type PanelTab =
   | 'military'
   | 'diplomacy'
   | 'logistics'
-  | 'territory';
+  | 'territory'
+  | 'war';
 export type DialogId = 'none' | 'save' | 'load' | 'settings' | 'pause' | 'leave';
 
 export interface CameraFocusRequest {
@@ -133,6 +134,17 @@ interface AppState {
   liftEmbargo: (targetId: string) => void;
   formAlliance: (targetId: string) => void;
   breakAlliance: (targetId: string) => void;
+
+  setArmyPosture: (armyId: string, posture: string) => void;
+  assignArmyToFrontline: (armyId: string, frontlineId: string, objectiveRegionId: string | null) => void;
+  formArmyGroup: (armyIds: string[], name: string, objectiveRegionId: string | null) => void;
+  createOperationFromFront: (warId: string) => void;
+  launchAirMission: (type: string, targetRegionId: string | null) => void;
+  orderBlockade: (targetId: string) => void;
+  launchMissile: (targetRegionId: string, type: 'tactical' | 'cruise' | 'ballistic') => void;
+  offerWhitePeace: (warId: string) => void;
+  acceptPeace: (offerId: string) => void;
+  rejectPeace: (offerId: string) => void;
 
   focusBattleCamera: (lon: number, lat: number) => void;
   focusArmyCamera: (lon: number, lat: number) => void;
@@ -591,6 +603,111 @@ export const useAppStore = create<AppState>()((set, get) => ({
     const session = get().session;
     if (!session?.breakAlliance(targetId)) return;
     get().showToast(message('diplomacy.allianceBroken'), 'warning');
+    set({ snapshot: session.snapshot() });
+  },
+
+  setArmyPosture: (armyId, posture) => {
+    const session = get().session;
+    if (!session?.setArmyPosture(armyId, posture as never)) return;
+    set({ snapshot: session.snapshot() });
+  },
+
+  assignArmyToFrontline: (armyId, frontlineId, objectiveRegionId) => {
+    const session = get().session;
+    if (!session?.assignArmyToFrontline(armyId, frontlineId, objectiveRegionId)) {
+      get().showToast(message('war.actionFailed'), 'warning');
+      return;
+    }
+    set({ snapshot: session.snapshot() });
+  },
+
+  formArmyGroup: (armyIds, name, objectiveRegionId) => {
+    const session = get().session;
+    if (!session?.createArmyGroup(name, armyIds, objectiveRegionId)) {
+      get().showToast(message('war.actionFailed'), 'warning');
+      return;
+    }
+    get().showToast(message('war.groupFormed'), 'success');
+    set({ snapshot: session.snapshot() });
+  },
+
+  createOperationFromFront: (warId) => {
+    const session = get().session;
+    const snapshot = get().snapshot;
+    if (!session || !snapshot) return;
+    const front = snapshot.warfare.frontlines.find((entry) => entry.warId === warId);
+    const armyIds = snapshot.armies.filter((army) => !army.movement).slice(0, 3).map((army) => army.id);
+    if (!front?.objectiveRegionId || armyIds.length === 0) {
+      get().showToast(message('war.noOperationTarget'), 'warning');
+      return;
+    }
+    const created = session.createOperation(
+      'majorOffensive',
+      [front.objectiveRegionId],
+      armyIds,
+      warId,
+    );
+    get().showToast(message(created ? 'war.operationCreated' : 'war.actionFailed'), created ? 'success' : 'warning');
+    set({ snapshot: session.snapshot() });
+  },
+
+  launchAirMission: (type, targetRegionId) => {
+    const session = get().session;
+    if (!session) return;
+    const launched = session.launchAirMission(type as never, targetRegionId);
+    get().showToast(
+      message(launched ? 'war.airLaunched' : 'war.airUnavailable'),
+      launched ? 'success' : 'warning',
+    );
+    set({ snapshot: session.snapshot() });
+  },
+
+  orderBlockade: (targetId) => {
+    const session = get().session;
+    if (!session) return;
+    const ordered = session.orderBlockade(targetId);
+    get().showToast(
+      message(ordered ? 'war.blockadeOrdered' : 'war.blockadeUnavailable'),
+      ordered ? 'success' : 'warning',
+    );
+    set({ snapshot: session.snapshot() });
+  },
+
+  launchMissile: (targetRegionId, type) => {
+    const session = get().session;
+    if (!session) return;
+    const result = session.launchMissile(targetRegionId, type);
+    get().showToast(
+      message(result.ok ? 'war.missileLaunched' : `war.missile.${result.reason}` as MessageKey),
+      result.ok ? 'success' : 'warning',
+    );
+    set({ snapshot: session.snapshot() });
+  },
+
+  offerWhitePeace: (warId) => {
+    const session = get().session;
+    if (!session) return;
+    const offer = session.proposePeace(warId, []);
+    get().showToast(
+      message(offer ? (offer.status === 'accepted' ? 'war.peaceAccepted' : 'war.peaceOffered') : 'war.actionFailed'),
+      offer ? 'success' : 'warning',
+    );
+    set({ snapshot: session.snapshot() });
+  },
+
+  acceptPeace: (offerId) => {
+    const session = get().session;
+    if (!session?.acceptPeace(offerId)) {
+      get().showToast(message('war.actionFailed'), 'warning');
+      return;
+    }
+    get().showToast(message('war.peaceAccepted'), 'success');
+    set({ snapshot: session.snapshot() });
+  },
+
+  rejectPeace: (offerId) => {
+    const session = get().session;
+    if (!session?.rejectPeace(offerId)) return;
     set({ snapshot: session.snapshot() });
   },
 

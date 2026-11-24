@@ -17,6 +17,16 @@ import {
   type StrategicMoveResult,
 } from './military/ArmySystem';
 import type { StrategicPath } from './pathfinding/Pathfinder';
+import { WarSystem } from './war/WarSystem';
+import { WarfareSystem } from './war/WarfareSystem';
+import type {
+  ArmyPosture,
+  MissileType,
+  OperationType,
+  PeaceOffer,
+  PeaceTerm,
+  War,
+} from './war/types';
 import { MilitarySystem } from './military/MilitarySystem';
 import { BattlefieldManager } from './tactical/BattlefieldManager';
 import type { BattleCommand, SavedTacticalBattle } from './tactical/types';
@@ -53,6 +63,8 @@ export class Simulation {
   private readonly logistics = new LogisticsSystem();
   private readonly stability = new StabilitySystem();
   private readonly diplomacy: DiplomacySystem;
+  private readonly war: WarSystem;
+  private readonly warfare: WarfareSystem;
   private readonly ai: AIDirector;
   private readonly lowTreasuryWarned = new Set<string>();
 
@@ -61,12 +73,17 @@ export class Simulation {
     this.armies = new ArmySystem(this.events);
     this.military = new MilitarySystem(this.events, this.armies);
     this.diplomacy = new DiplomacySystem(this.events);
+    this.war = new WarSystem(this.events, this.diplomacy);
+    this.warfare = new WarfareSystem(this.events);
     this.ai = new AIDirector(world, this.events);
     this.battlefields = new BattlefieldManager(world.playerCountryId);
     // Every strategic battle publishes its rosters; the tactical manager opens
     // a battlefield only for engagements that involve the player.
     this.events.on((event) => {
-      if (event.type === 'battleResolved') this.battlefields.onBattleResolved(world, event);
+      if (event.type === 'battleResolved') {
+        this.battlefields.onBattleResolved(world, event);
+        this.war.onBattle(world, event);
+      }
     });
   }
 
@@ -93,6 +110,10 @@ export class Simulation {
 
     this.armies.tick(this.world, day);
     this.logistics.tick(this.world);
+    this.war.tick(this.world, day);
+    this.warfare.tick(this.world, day, (countryId, armyId, targetId) =>
+      this.marchArmyTo(countryId, armyId, targetId).ok,
+    );
 
     if (day % 7 === 0) {
       for (const country of this.world.countries.values()) {
@@ -107,6 +128,8 @@ export class Simulation {
       queueUnits: (countryId, unitId) => this.queueProduction(countryId, unitId),
       marchArmy: (countryId, armyId, targetId) =>
         this.marchArmy(countryId, armyId, targetId).ok,
+      orderArmyMove: (countryId, armyId, targetId) =>
+        this.marchArmyTo(countryId, armyId, targetId).ok,
       declareWar: (countryId, targetId) => this.declareWar(countryId, targetId),
       makePeace: (countryId, targetId) => this.makePeace(countryId, targetId),
       queueConstruction: (countryId, projectId, regionId) =>
@@ -119,6 +142,16 @@ export class Simulation {
         this.grantMilitaryAccess(countryId, targetId),
       imposeEmbargo: (countryId, targetId) => this.imposeEmbargo(countryId, targetId),
       formAlliance: (countryId, targetId) => this.formAlliance(countryId, targetId),
+      setArmyPosture: (countryId, armyId, posture) =>
+        this.setArmyPosture(countryId, armyId, posture),
+      createArmyGroup: (countryId, name, armyIds, objectiveRegionId) =>
+        Boolean(this.createArmyGroup(countryId, name, armyIds, objectiveRegionId)),
+      createOperation: (countryId, type, targetRegionIds, armyIds, warId) =>
+        Boolean(this.createOperation(countryId, type, targetRegionIds, armyIds, warId)),
+      launchAirMission: (countryId, type, targetRegionId) =>
+        this.launchAirMission(countryId, type, targetRegionId),
+      imposeBlockade: (countryId, targetId) =>
+        this.orderBlockade(countryId, targetId),
     });
   }
 
@@ -202,16 +235,146 @@ export class Simulation {
     const defender = this.world.get(defenderId);
     if (!aggressor || !defender || aggressorId === defenderId) return false;
     if (aggressor.diplomacy.relations[defenderId]?.atWar) return false;
-    return this.diplomacy.declareWar(aggressor, defender, this.world.day);
+    const declared = this.diplomacy.declareWar(aggressor, defender, this.world.day);
+    if (declared) this.war.startWar(this.world, aggressor, defender, this.world.day);
+    return declared;
   }
 
   makePeace(aId: string, bId: string): boolean {
     const a = this.world.get(aId);
     const b = this.world.get(bId);
     if (!a || !b) return false;
+    const existing = this.war.findWarBetween(this.world, aId, bId);
+    if (existing) return this.war.makeWhitePeace(this.world, existing, this.world.day);
     const signed = this.diplomacy.signPeace(a, b, this.world.day);
     if (signed) this.releaseOccupations(a.id, b.id);
     return signed;
+  }
+
+  // ── War, fronts, operations, air, naval and missiles ───────────────────────
+
+  wars(): War[] {
+    return Object.values(this.world.wars);
+  }
+
+  warOf(countryId: string): War[] {
+    return this.war.warForCountry(this.world, countryId);
+  }
+
+  setArmyPosture(countryId: string, armyId: string, posture: ArmyPosture): boolean {
+    const country = this.world.get(countryId);
+    if (!country) return false;
+    return this.warfare.setPosture(country, armyId, posture);
+  }
+
+  createArmyGroup(
+    countryId: string,
+    name: string,
+    armyIds: string[],
+    objectiveRegionId: string | null = null,
+  ) {
+    const country = this.world.get(countryId);
+    if (!country) return null;
+    return this.warfare.createArmyGroup(country, name, armyIds, this.world.day, objectiveRegionId);
+  }
+
+  assignArmyToGroup(countryId: string, armyId: string, groupId: string | null): boolean {
+    const country = this.world.get(countryId);
+    if (!country) return false;
+    return this.warfare.assignArmyToGroup(country, armyId, groupId);
+  }
+
+  assignArmyToFrontline(
+    countryId: string,
+    armyId: string,
+    frontlineId: string | null,
+    objectiveRegionId: string | null = null,
+  ): boolean {
+    const country = this.world.get(countryId);
+    if (!country) return false;
+    return this.warfare.assignArmyToFrontline(country, armyId, frontlineId, objectiveRegionId);
+  }
+
+  createOperation(
+    countryId: string,
+    type: OperationType,
+    targetRegionIds: string[],
+    armyIds: string[],
+    warId: string | null = null,
+  ) {
+    const country = this.world.get(countryId);
+    if (!country) return null;
+    return this.warfare.createOperation(
+      country,
+      type,
+      targetRegionIds,
+      armyIds,
+      warId,
+      this.world.day,
+    );
+  }
+
+  launchAirMission(
+    countryId: string,
+    type: Parameters<WarfareSystem['launchAirMission']>[2],
+    targetRegionId: string | null,
+  ): boolean {
+    const country = this.world.get(countryId);
+    if (!country) return false;
+    return this.warfare.launchAirMission(this.world, country, type, targetRegionId, this.world.day);
+  }
+
+  orderBlockade(countryId: string, targetId: string): boolean {
+    const country = this.world.get(countryId);
+    if (!country) return false;
+    return this.warfare.orderBlockade(this.world, country, targetId, this.world.day);
+  }
+
+  liftBlockade(countryId: string, targetId: string): boolean {
+    return this.warfare.liftBlockade(this.world, countryId, targetId);
+  }
+
+  launchMissile(
+    countryId: string,
+    targetRegionId: string,
+    type: MissileType,
+  ): ReturnType<WarfareSystem['launchMissile']> {
+    const country = this.world.get(countryId);
+    if (!country) return { ok: false, reason: 'unknown-target' };
+    return this.warfare.launchMissile(this.world, country, targetRegionId, type, this.world.day);
+  }
+
+  proposePeace(
+    countryId: string,
+    warId: string,
+    terms: PeaceTerm[],
+  ): PeaceOffer | null {
+    const country = this.world.get(countryId);
+    const war = this.world.wars[warId];
+    if (!country || !war) return null;
+    return this.war.proposePeace(this.world, war, countryId, terms, this.world.day);
+  }
+
+  acceptPeace(offerId: string): boolean {
+    const offer = this.world.peaceOffers.find((entry) => entry.id === offerId);
+    if (!offer) return false;
+    return this.war.acceptPeace(this.world, offer, this.world.day);
+  }
+
+  rejectPeace(offerId: string): boolean {
+    const offer = this.world.peaceOffers.find((entry) => entry.id === offerId);
+    if (!offer) return false;
+    this.war.rejectPeace(offer);
+    return true;
+  }
+
+  /** The strategic warfare service, exposed for UI projections and tests. */
+  get warfareSystem(): WarfareSystem {
+    return this.warfare;
+  }
+
+  get warSystem(): WarSystem {
+    return this.war;
   }
 
   /** Peace returns occupied territory to its sovereign. */
@@ -306,6 +469,24 @@ export class Simulation {
       recomputeModifiers(country);
       country.research.output = 0;
       syncMilitaryTotals(country);
+      const warfare = (country as CountryState & { warfare?: unknown }).warfare;
+      if (!warfare) {
+        // Defensive repair for hand-built test states and pre-v6 payloads.
+        country.warfare = {
+          groups: [],
+          operations: [],
+          air: { superiority: 0.5, readiness: 0.7, coverage: 0, missions: [], lastMissionDay: 0 },
+          naval: { taskForces: [], blockadeEffect: 0, lastBlockadeDay: 0 },
+          missiles: {
+            readiness: 0.5,
+            stockpile: { tactical: 4, cruise: 2, ballistic: 1 },
+            cooldownUntilDay: 0,
+            lastStrikeDay: 0,
+            lastTargetRegionId: null,
+          },
+          plans: [],
+        };
+      }
     }
   }
 

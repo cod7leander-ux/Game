@@ -2,6 +2,7 @@ import { buildRegionStates } from '../gameplay/regions/regions';
 import { GEOGRAPHY } from '../geo';
 import { createEmptyResources, DEFAULT_ALLOCATION } from '../gameplay/economy/types';
 import { createRelation } from '../gameplay/diplomacy/types';
+import { createWarfareState } from '../gameplay/war/types';
 import { CURRENT_SAVE_VERSION, type SaveFile } from './types';
 
 /**
@@ -220,6 +221,85 @@ export const MIGRATIONS: Record<number, Migration> = {
           regionSource: GEOGRAPHY.regionSource,
           version: 1,
         },
+      },
+    };
+  },
+
+  /**
+   * v6 adds multi-country wars, fronts, regional control/occupation progress,
+   * army postures/groups/operations, air, naval, missiles, blockades, peace
+   * negotiations and strategic AI plans. Old armies and regions receive neutral
+   * defaults; no territory, army or diplomatic state is dropped.
+   */
+  5: (file) => {
+    const world = (file.world ?? {}) as {
+      countries?: LegacyCountry[];
+      wars?: unknown;
+      frontlines?: unknown;
+      blockades?: unknown;
+      peaceOffers?: unknown;
+    };
+    const countries = (world.countries ?? []).map((raw) => {
+      const country = raw as Record<string, unknown>;
+      const occupierId = (country.occupierId as string | null | undefined) ?? null;
+      const regions = (Array.isArray(country.regions) ? country.regions : []).map((entry) => {
+        const region = entry as Record<string, unknown>;
+        const legacyControl = String(region.control ?? 'sovereign');
+        const occupied = legacyControl === 'occupied' || Boolean(occupierId);
+        return {
+          ...region,
+          controllerId: region.controllerId ?? (occupierId || null),
+          occupierId: region.occupierId ?? (occupierId || null),
+          controlStatus:
+            region.controlStatus ??
+            (occupied ? 'occupied' : legacyControl === 'contested' ? 'contested' : 'controlled'),
+          occupationProgress: Number(region.occupationProgress ?? (occupied ? 1 : 0)),
+          resistance: Number(region.resistance ?? (occupied ? 0.35 : 0)),
+          supplyModifier: Number(region.supplyModifier ?? (occupied ? 0.72 : 1)),
+          frontlineId: region.frontlineId ?? null,
+          airDefense: Number(region.airDefense ?? 0),
+          airSupport: Number(region.airSupport ?? 0),
+          airSupportFor: region.airSupportFor ?? null,
+          navalSupport: Number(region.navalSupport ?? 0),
+          navalSupportFor: region.navalSupportFor ?? null,
+        };
+      });
+      const military = (country.military ?? {}) as Record<string, unknown>;
+      const armies = (Array.isArray(military.armies) ? military.armies : []).map((entry) => {
+        const army = entry as Record<string, unknown>;
+        const ordinal = Number(army.ordinal ?? 1);
+        return {
+          ...army,
+          name: String(army.name ?? `${ordinal} Army`),
+          commander: String(army.commander ?? `Commander ${ordinal}`),
+          posture: army.posture ?? 'defend',
+          objectiveRegionId: army.objectiveRegionId ?? null,
+          frontlineId: army.frontlineId ?? null,
+          groupId: army.groupId ?? null,
+          morale: Number(army.morale ?? 0.82),
+          readiness: Number(army.readiness ?? 0.78),
+          isolated: Boolean(army.isolated ?? false),
+          encircledDays: Number(army.encircledDays ?? 0),
+        };
+      });
+      return {
+        ...country,
+        occupierId,
+        regions,
+        military: { ...military, armies },
+        warfare: country.warfare ?? createWarfareState(),
+      };
+    });
+    return {
+      ...file,
+      version: 6,
+      world: {
+        ...world,
+        countries,
+        wars: Array.isArray(world.wars) ? world.wars : [],
+        frontlines: Array.isArray(world.frontlines) ? world.frontlines : [],
+        blockades: Array.isArray(world.blockades) ? world.blockades : [],
+        peaceOffers: Array.isArray(world.peaceOffers) ? world.peaceOffers : [],
       },
     };
   },

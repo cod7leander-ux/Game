@@ -7,6 +7,7 @@ import type { AIPersonalityId } from '../ai/types';
 import { createArmy } from '../military/armies';
 import { createEmptyResources, DEFAULT_ALLOCATION } from '../economy/types';
 import { buildRegionStates } from '../regions/regions';
+import { createWarfareState } from '../war/types';
 import type { CountryDefinition, CountryState } from './types';
 
 /**
@@ -161,6 +162,7 @@ export const createCountryState = (
     unrest: 0,
     objectives: [],
     production: { construction: [], completedProjects: 0 },
+    warfare: createWarfareState(),
     occupierId: null,
     modifiers: {
       production: 0,

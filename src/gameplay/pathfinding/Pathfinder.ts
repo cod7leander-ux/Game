@@ -5,6 +5,7 @@ import type { CountryState } from '../country/types';
 import { areAllied, areAtWar } from '../diplomacy/helpers';
 import type { World } from '../World';
 import type { RegionState } from '../regions/types';
+import { findRegionState } from '../war/WarSystem';
 
 /**
  * Strategic pathfinding on the geographic region graph.
@@ -87,6 +88,8 @@ class MinHeap {
 }
 
 const regionOwner = (world: World, regionId: string): CountryState | undefined => {
+  const state = findRegionState(world, regionId);
+  if (state) return world.get(state.countryId);
   const definition = regionAt(regionId);
   if (!definition) return undefined;
   return world.get(definition.countryId);
@@ -100,13 +103,20 @@ export const canTraverseRegion = (
 ): boolean => {
   const owner = regionOwner(world, regionId);
   if (!owner) return false;
+  const state = findRegionState(world, regionId);
+  const controllerId = state?.controllerId ?? owner.id;
+  const controller = world.get(controllerId);
+  if (controller && controller.id !== owner.id) {
+    if (controller.id === mover.id) return true;
+    if (areAtWar(mover, controller)) return true;
+    if (areAllied(mover, controller)) return true;
+    if (mover.diplomacy.relations[controller.id]?.militaryAccess) return true;
+  }
   if (owner.id === mover.id) return true;
   if (owner.occupierId === mover.id) return true;
   if (areAllied(mover, owner)) return true;
   if (mover.diplomacy.relations[owner.id]?.militaryAccess) return true;
   if (areAtWar(mover, owner)) return true;
-  // Regions occupied by an ally are reachable through that ally.
-  if (owner.occupierId && areAllied(mover, world.get(owner.occupierId) ?? owner)) return true;
   return false;
 };
 
@@ -120,9 +130,7 @@ export const strategicStepCost = (
   const to = REGION_GEO_BY_ID[toRegionId];
   if (!from || !to) return Number.POSITIVE_INFINITY;
   const definition = regionAt(toRegionId);
-  const regionState: RegionState | undefined = definition
-    ? world.get(definition.countryId)?.regions.find((region) => region.id === toRegionId)
-    : undefined;
+  const regionState: RegionState | undefined = findRegionState(world, toRegionId);
   const terrain = TERRAIN[definition?.terrain ?? 'plains'];
   const infrastructure = regionState?.infrastructure ?? definition?.infrastructure ?? 0.4;
   const owner = regionOwner(world, toRegionId);

@@ -15,6 +15,12 @@ import type { MarchResult, StrategicMoveResult } from '../gameplay/military/Army
 import type { StrategicPath } from '../gameplay/pathfinding/Pathfinder';
 import { GEOGRAPHY } from '../geo';
 import type { FormationType } from '../gameplay/tactical/types';
+import type {
+  ArmyPosture,
+  MissileType,
+  OperationType,
+  PeaceTerm,
+} from '../gameplay/war/types';
 import { World } from '../gameplay/World';
 import type { MessageKey } from '../i18n/locales/en';
 import type { SaveFile } from '../save/types';
@@ -114,6 +120,12 @@ export class GameSession {
         day: file.world.day,
       },
       file.world.countries,
+      {
+        wars: file.world.wars,
+        frontlines: file.world.frontlines,
+        blockades: file.world.blockades,
+        peaceOffers: file.world.peaceOffers,
+      },
     );
     const clock = new SimClock(GAME.msPerDay, file.clock.day);
     clock.restore(file.clock);
@@ -199,6 +211,92 @@ export class GameSession {
 
   makePeace(targetId: string): boolean {
     return this.simulation.makePeace(this.world.playerCountryId, targetId);
+  }
+
+  // ── War management ─────────────────────────────────────────────────────────
+
+  setArmyPosture(armyId: string, posture: ArmyPosture): boolean {
+    return this.simulation.setArmyPosture(this.world.playerCountryId, armyId, posture);
+  }
+
+  createArmyGroup(
+    name: string,
+    armyIds: string[],
+    objectiveRegionId: string | null,
+  ): boolean {
+    return Boolean(
+      this.simulation.createArmyGroup(
+        this.world.playerCountryId,
+        name,
+        armyIds,
+        objectiveRegionId,
+      ),
+    );
+  }
+
+  assignArmyToGroup(armyId: string, groupId: string | null): boolean {
+    return this.simulation.assignArmyToGroup(this.world.playerCountryId, armyId, groupId);
+  }
+
+  assignArmyToFrontline(
+    armyId: string,
+    frontlineId: string | null,
+    objectiveRegionId: string | null = null,
+  ): boolean {
+    return this.simulation.assignArmyToFrontline(
+      this.world.playerCountryId,
+      armyId,
+      frontlineId,
+      objectiveRegionId,
+    );
+  }
+
+  createOperation(
+    type: OperationType,
+    targetRegionIds: string[],
+    armyIds: string[],
+    warId: string | null,
+  ): boolean {
+    return Boolean(
+      this.simulation.createOperation(
+        this.world.playerCountryId,
+        type,
+        targetRegionIds,
+        armyIds,
+        warId,
+      ),
+    );
+  }
+
+  launchAirMission(
+    type: 'airSuperiority' | 'interception' | 'groundSupport' | 'recon' | 'strategicBombing' | 'transport',
+    targetRegionId: string | null,
+  ): boolean {
+    return this.simulation.launchAirMission(this.world.playerCountryId, type, targetRegionId);
+  }
+
+  orderBlockade(targetId: string): boolean {
+    return this.simulation.orderBlockade(this.world.playerCountryId, targetId);
+  }
+
+  liftBlockade(targetId: string): boolean {
+    return this.simulation.liftBlockade(this.world.playerCountryId, targetId);
+  }
+
+  launchMissile(targetRegionId: string, type: MissileType) {
+    return this.simulation.launchMissile(this.world.playerCountryId, targetRegionId, type);
+  }
+
+  proposePeace(warId: string, terms: PeaceTerm[]) {
+    return this.simulation.proposePeace(this.world.playerCountryId, warId, terms);
+  }
+
+  acceptPeace(offerId: string): boolean {
+    return this.simulation.acceptPeace(offerId);
+  }
+
+  rejectPeace(offerId: string): boolean {
+    return this.simulation.rejectPeace(offerId);
   }
 
   /** Civilian construction in one of the player's regions. */
@@ -570,6 +668,10 @@ export class GameSession {
           regionSource: GEOGRAPHY.regionSource,
           version: 1,
         },
+        wars: Object.values(this.world.wars),
+        frontlines: Object.values(this.world.frontlines),
+        blockades: this.world.blockades,
+        peaceOffers: this.world.peaceOffers,
       },
       clock: {
         day: this.clock.day,

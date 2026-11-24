@@ -17,6 +17,8 @@ import { chooseProject } from '../production/ProductionSystem';
 import { haveNonAggression } from '../diplomacy/helpers';
 import type { World } from '../World';
 import type { AIFocus, AIPersonality, AIPersonalityId, AIState } from './types';
+import type { ArmyPosture, OperationType } from '../war/types';
+import { findRegionState } from '../war/WarSystem';
 
 /**
  * AI decision core.
@@ -44,6 +46,12 @@ export interface AIEvaluator {
   /** Returns 0..1 desirability for a focus. */
   score(context: AIContext): number;
 }
+
+const airUnits = (country: CountryState): number =>
+  Object.entries(country.military.formations).reduce((total, [unitId, count]) => {
+    const unit = getUnit(unitId);
+    return unit?.domain === 'air' ? total + count : total;
+  }, 0);
 
 const threatScore = (context: AIContext): number => {
   const { world, country } = context;
@@ -212,6 +220,8 @@ export interface AIActions {
   startResearch: (countryId: string, techId: string) => boolean;
   queueUnits: (countryId: string, unitId: string) => boolean;
   marchArmy: (countryId: string, armyId: string, targetId: string) => boolean;
+  /** Multi-hop strategic order over the region graph. */
+  orderArmyMove?: (countryId: string, armyId: string, targetId: string) => boolean;
   declareWar: (countryId: string, targetId: string) => boolean;
   makePeace: (countryId: string, targetId: string) => boolean;
   /** Civilian construction, paid from the same industry and resources. */
@@ -222,6 +232,27 @@ export interface AIActions {
   grantMilitaryAccess: (countryId: string, targetId: string) => boolean;
   imposeEmbargo: (countryId: string, targetId: string) => boolean;
   formAlliance: (countryId: string, targetId: string) => boolean;
+  /** M6 strategic warfare actions. Callers without a war layer may omit them. */
+  setArmyPosture?: (countryId: string, armyId: string, posture: ArmyPosture) => boolean;
+  createArmyGroup?: (
+    countryId: string,
+    name: string,
+    armyIds: string[],
+    objectiveRegionId: string | null,
+  ) => boolean;
+  createOperation?: (
+    countryId: string,
+    type: OperationType,
+    targetRegionIds: string[],
+    armyIds: string[],
+    warId: string | null,
+  ) => boolean;
+  launchAirMission?: (
+    countryId: string,
+    type: 'airSuperiority' | 'interception' | 'groundSupport' | 'recon' | 'strategicBombing' | 'transport',
+    targetRegionId: string | null,
+  ) => boolean;
+  imposeBlockade?: (countryId: string, targetId: string) => boolean;
 }
 
 export class AIDirector {
@@ -307,7 +338,9 @@ export class AIDirector {
       }
     }
 
+    this.updateWarPlans(country, day, actions);
     this.commandArmies(country, actions);
+    this.operateAirAndNaval(country, day, actions);
     this.considerDiplomacy(country, day, actions);
     recomputeStrength(country);
   }
@@ -481,10 +514,32 @@ export class AIDirector {
         Math.max(priorities.get(objective.targetCountryId) ?? 0, objective.priority),
       );
     }
+    // Front objectives outrank generic war aims: this is the M6 change from
+    // attacking the weakest neighbour to fighting the war that is actually in
+    // front of the army.
+    const frontTargets = new Map<string, { regionId: string | null; priority: number }>();
+    for (const front of this.frontsOf(country)) {
+      const state = front.objectiveRegionId
+        ? findRegionState(this.world, front.objectiveRegionId)
+        : undefined;
+      const targetCountryId = state?.countryId ?? null;
+      if (targetCountryId && targetCountryId !== country.id) {
+        priorities.set(
+          targetCountryId,
+          Math.max(priorities.get(targetCountryId) ?? 0, front.priority),
+        );
+        frontTargets.set(targetCountryId, {
+          regionId: front.objectiveRegionId,
+          priority: front.priority,
+        });
+      }
+    }
 
+    const personality = PERSONALITIES[country.ai.personalityId] ?? PERSONALITIES.balanced;
     const defensivePosture =
       country.ai.personalityId === 'defensive' || country.stability < 0.3;
     const atWar = country.diplomacy.wars.length > 0;
+    const aggressionThreshold = 1.02 + (1 - personality.aggression) * 0.38;
 
     for (const army of idle) {
       // Keep a home guard: the strongest army stays put while the capital is
@@ -507,14 +562,187 @@ export class AIDirector {
       if (targets.length === 0) continue;
 
       const power = armyPower(army, country);
+      if (army.isolated && aggressionThreshold > 1.2) {
+        if (actions.setArmyPosture) actions.setArmyPosture(country.id, army.id, 'withdraw');
+        continue;
+      }
       targets.sort((a, b) => {
         const priorityDelta = (priorities.get(b.id) ?? 0) - (priorities.get(a.id) ?? 0);
         if (Math.abs(priorityDelta) > 0.01) return priorityDelta;
         return this.defenceAt(a, country) - this.defenceAt(b, country);
       });
       const target = targets[0];
-      if (power < this.defenceAt(target, country) * 1.1) continue;
-      if (actions.marchArmy(country.id, army.id, target.id)) continue;
+      const group = army.groupId
+        ? country.warfare.groups.find((entry) => entry.id === army.groupId)
+        : undefined;
+      const groupTargetCountry = group?.primaryObjectiveRegionId
+        ? findRegionState(this.world, group.primaryObjectiveRegionId)?.countryId
+        : undefined;
+      const chosen = groupTargetCountry && targets.some((entry) => entry.id === groupTargetCountry)
+        ? targets.find((entry) => entry.id === groupTargetCountry)!
+        : target;
+      if (defensivePosture) {
+        if (actions.setArmyPosture) actions.setArmyPosture(country.id, army.id, 'defend');
+        continue;
+      }
+      if (power < this.defenceAt(chosen, country) * aggressionThreshold) {
+        if (actions.setArmyPosture) actions.setArmyPosture(country.id, army.id, 'hold');
+        continue;
+      }
+      if (actions.setArmyPosture) actions.setArmyPosture(country.id, army.id, 'attack');
+      const frontTarget = frontTargets.get(chosen.id)?.regionId;
+      if (
+        frontTarget &&
+        actions.orderArmyMove &&
+        actions.orderArmyMove(country.id, army.id, frontTarget)
+      ) {
+        continue;
+      }
+      if (actions.marchArmy(country.id, army.id, chosen.id)) continue;
+    }
+  }
+
+  /** Active fronts involving this country, ordered by strategic priority. */
+  private frontsOf(country: CountryState) {
+    const fronts = [];
+    for (const front of Object.values(this.world.frontlines)) {
+      if (front.status !== 'active' && front.status !== 'stalemate') continue;
+      const war = this.world.wars[front.warId];
+      if (!war || war.status !== 'active') continue;
+      if (front.attackerId !== country.id && front.defenderId !== country.id) {
+        const participant = war.participants.some(
+          (entry) => entry.countryId === country.id && entry.leftDay === null,
+        );
+        if (!participant) continue;
+      }
+      fronts.push(front);
+    }
+    return fronts.sort((a, b) => b.priority - a.priority);
+  }
+
+  /**
+   * Strategic planner: a small, bounded set of persistent plans that connect
+   * national posture to fronts, army groups, operations and procurement.
+   */
+  private updateWarPlans(country: CountryState, day: number, actions: AIActions): void {
+    const personality = PERSONALITIES[country.ai.personalityId] ?? PERSONALITIES.balanced;
+    const warfare = country.warfare;
+    const fronts = this.frontsOf(country);
+    const addPlan = (
+      kind: 'defendCapital' | 'defensiveLine' | 'prepareOffensive' | 'resourceSeizure' | 'economicGrowth' | 'airSuperiority' | 'navalControl' | 'supplyRecovery',
+      priority: number,
+      targetCountryId: string | null,
+      targetRegionId: string | null,
+      rationale: string,
+    ) => {
+      if (warfare.plans.some((plan) => plan.kind === kind && plan.status === 'active')) return;
+      warfare.plans.push({
+        id: `${country.id}-PLAN-${day}-${warfare.plans.length + 1}`,
+        countryId: country.id,
+        kind,
+        priority,
+        targetCountryId,
+        targetRegionId,
+        createdDay: day,
+        status: 'active',
+        rationale,
+      });
+    };
+
+    const capitalThreat = fronts.some((front) => {
+      const capital = country.capitalRegionId;
+      return front.regionIds.includes(capital) || front.pressure > 0.58;
+    });
+    if (capitalThreat || (country.diplomacy.wars.length > 0 && personality.id === 'defensive')) {
+      addPlan('defendCapital', 0.96, null, country.capitalRegionId, 'capital threatened');
+    }
+    if (fronts.length > 0) {
+      addPlan('defensiveLine', 0.78, null, fronts[0].objectiveRegionId, 'hold the front');
+      const advantage =
+        fronts.reduce((sum, front) => sum + front.attackerStrength, 0) /
+        Math.max(1, fronts.reduce((sum, front) => sum + front.defenderStrength, 0));
+      if (
+        advantage > 1.15 + (1 - personality.aggression) * 0.35 &&
+        personality.aggression > 0.35
+      ) {
+        const targetCountry = findRegionState(this.world, fronts[0].objectiveRegionId ?? '')
+          ?.countryId ?? null;
+        addPlan(
+          personality.aggression > 0.55 ? 'prepareOffensive' : 'resourceSeizure',
+          0.86,
+          targetCountry,
+          fronts[0].objectiveRegionId,
+          `front advantage ${advantage.toFixed(2)}`,
+        );
+        const file = fronts[0];
+        const target = file.objectiveRegionId;
+        const memberIds = country.military.armies
+          .filter((army) => !army.movement)
+          .slice(0, 3)
+          .map((army) => army.id);
+        if (target && memberIds.length >= 2 && day % 7 === 0) {
+          if (warfare.groups.length === 0 && actions.createArmyGroup) {
+            actions.createArmyGroup(country.id, 'Field Army Group', memberIds, target);
+          }
+          const hasOperation = warfare.operations.some(
+            (operation) => operation.status === 'active' && operation.frontlineId === file.id,
+          );
+          if (!hasOperation && actions.createOperation) {
+            actions.createOperation(
+              country.id,
+              'majorOffensive',
+              [target],
+              memberIds,
+              file.warId,
+            );
+          }
+        }
+      }
+    }
+    if (personality.id === 'economic' || country.economy.resources.money < 0) {
+      addPlan('economicGrowth', 0.66, null, null, 'economic posture');
+    }
+    if (personality.id === 'air' || airUnits(country) > 0) {
+      addPlan('airSuperiority', 0.6, null, null, 'air posture');
+    }
+    if (personality.id === 'naval') {
+      addPlan('navalControl', 0.64, null, null, 'naval posture');
+    }
+    const supply = country.military.armies.length > 0
+      ? country.military.armies.reduce((sum, army) => sum + army.supply, 0) /
+        country.military.armies.length
+      : 1;
+    if (supply < 0.48) addPlan('supplyRecovery', 0.82, null, null, 'supply crisis');
+    if (warfare.plans.length > 4) {
+      warfare.plans.sort((a, b) => b.priority - a.priority);
+      warfare.plans.splice(4);
+    }
+  }
+
+  /** Air and naval missions are planned at the same cadence as ground plans. */
+  private operateAirAndNaval(
+    country: CountryState,
+    day: number,
+    actions: AIActions,
+  ): void {
+    if (country.diplomacy.wars.length === 0) return;
+    const personality = PERSONALITIES[country.ai.personalityId] ?? PERSONALITIES.balanced;
+    const front = this.frontsOf(country)[0];
+    const targetRegion = front?.objectiveRegionId ?? null;
+    if (actions.launchAirMission && targetRegion && airUnits(country) > 0) {
+      if (day % 9 === 0 && country.warfare.air.missions.length < 2) {
+        const type =
+          personality.id === 'air'
+            ? 'strategicBombing'
+            : personality.id === 'defensive'
+              ? 'interception'
+              : 'groundSupport';
+        actions.launchAirMission(country.id, type, targetRegion);
+      }
+    }
+    if (actions.imposeBlockade && personality.id === 'naval' && day % 14 === 0) {
+      const enemyId = country.diplomacy.wars[0];
+      if (enemyId) actions.imposeBlockade(country.id, enemyId);
     }
   }
 

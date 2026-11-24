@@ -4,6 +4,7 @@ import { capitalRegionOf } from '../../data/regions';
 import { getUnit } from '../../data/units';
 import type { CountryState } from '../country/types';
 import type { FormationType } from '../tactical/types';
+import type { ArmyPosture } from '../war/types';
 import { recomputeStrength } from '../country/modifiers';
 
 /**
@@ -26,6 +27,10 @@ export interface Army {
   id: string;
   /** Display ordinal within the country (1st Army, 2nd Army…). */
   ordinal: number;
+  /** Stable display name; localization keeps the ordinal in the UI. */
+  name: string;
+  /** Abstract commander, not an individual soldier simulation. */
+  commander: string;
   locationId: string;
   /** Geographic region the army currently stands in (anchor for routing). */
   regionId: string;
@@ -38,6 +43,22 @@ export interface Army {
   movement: ArmyMovement | null;
   /** Preferred battlefield formation; the tactical layer reads it on spawn. */
   formation: FormationType;
+  /** Strategic posture assigned by the player or AI. */
+  posture: ArmyPosture;
+  /** Region this army is operating toward, if any. */
+  objectiveRegionId: string | null;
+  /** Frontline assignment, if any. */
+  frontlineId: string | null;
+  /** Army group assignment, if any. */
+  groupId: string | null;
+  /** 0..1 cohesion and willingness to fight. */
+  morale: number;
+  /** 0..1 equipment and staff readiness (national readiness feeds this). */
+  readiness: number;
+  /** True while the army is cut off from friendly supply lines. */
+  isolated: boolean;
+  /** Consecutive days isolated; drives escalating penalties. */
+  encircledDays: number;
   /** 0..1 supply level; low supply cuts readiness and causes attrition. */
   supply: number;
   /** Country that currently supplies this army (usually its homeland). */
@@ -84,6 +105,8 @@ export const createArmy = (
 ): Army => ({
   id: `${countryId}-A${ordinal}`,
   ordinal,
+  name: `${ordinal}${ordinal === 1 ? 'st' : ordinal === 2 ? 'nd' : ordinal === 3 ? 'rd' : 'th'} Army`,
+  commander: `Commander ${ordinal}`,
   locationId,
   regionId: capitalRegionOf(locationId)?.id ?? `${locationId}-R1`,
   route: [],
@@ -91,6 +114,14 @@ export const createArmy = (
   composition: { ...composition },
   movement: null,
   formation: 'line',
+  posture: 'defend',
+  objectiveRegionId: null,
+  frontlineId: null,
+  groupId: null,
+  morale: 0.82,
+  readiness: 0.78,
+  isolated: false,
+  encircledDays: 0,
   supply: 1,
   supplySource: countryId,
   daysLowSupply: 0,
@@ -109,6 +140,18 @@ export const armyUnits = (army: Army): number =>
 
 /** The single combat-power formula used by battles, the AI and the interface. */
 export const armyPower = (army: Army, country: CountryState): number => {
+  const postureModifier =
+    army.posture === 'attack' || army.posture === 'advance'
+      ? 1.08
+      : army.posture === 'defend' || army.posture === 'hold'
+        ? 1.1
+        : army.posture === 'withdraw'
+          ? 0.86
+          : army.posture === 'recon'
+            ? 0.82
+            : 1;
+  const cohesion =
+    (0.72 + (army.morale ?? 0.8) * 0.18 + (army.readiness ?? 0.75) * 0.1) * postureModifier;
   let power = 0;
   for (const [unitId, count] of Object.entries(army.composition)) {
     if (count <= 0) continue;
@@ -125,6 +168,8 @@ export const armyPower = (army: Army, country: CountryState): number => {
     power *
     (0.55 + country.military.readiness * 0.55) *
     (0.7 + army.supply * 0.3) *
+    cohesion *
+    (army.isolated ? 0.78 : 1) *
     (1 + country.modifiers.attack * 0.35)
   );
 };

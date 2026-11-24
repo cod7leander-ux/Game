@@ -20,7 +20,34 @@ export interface RegionState {
   unrest: number;
   /** 0..1 war damage, reduces output and infrastructure effectiveness. */
   damage: number;
+  /** Compatibility colour/status: sovereign, occupied or contested. */
   control: 'sovereign' | 'occupied' | 'contested';
+  /** Country currently exercising military control, null when sovereign. */
+  controllerId: string | null;
+  /** Country occupying the region, if any. Ownership never changes here. */
+  occupierId: string | null;
+  controlStatus:
+    | 'controlled'
+    | 'contested'
+    | 'occupied'
+    | 'liberated'
+    | 'recentlyCaptured';
+  /** 0..1 occupation consolidation; captures are not instant. */
+  occupationProgress: number;
+  /** 0..1 passive and active resistance against the controller. */
+  resistance: number;
+  /** Multiplier applied to regional supply while controlled by an enemy. */
+  supplyModifier: number;
+  /** Frontline this region currently belongs to, if any. */
+  frontlineId: string | null;
+  /** 0..1 air-defence coverage derived daily from local AD formations. */
+  airDefense: number;
+  /** 0..1 temporary close-air-support modifier for battles in this region. */
+  airSupport: number;
+  airSupportFor: string | null;
+  /** 0..1 temporary naval-support modifier (coastal battles and supply). */
+  navalSupport: number;
+  navalSupportFor: string | null;
   /** Permanent daily output added by completed infrastructure projects. */
   bonusOutput: Partial<Record<ResourceId, number>>;
   /** Industrial bonus from completed projects (0..1). */

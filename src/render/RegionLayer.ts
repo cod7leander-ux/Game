@@ -184,8 +184,15 @@ export class RegionLayer {
       case 'political':
       case 'diplomacy': {
         out.set(TONE_COLORS[view.tone]);
-        if (view.occupied) out.lerp(new Color('#ff7a3d'), 0.35);
+        if (view.controlStatus === 'contested') out.lerp(new Color('#ffd166'), 0.55);
+        else if (view.controlStatus === 'recentlyCaptured') out.lerp(new Color('#ff8f4d'), 0.5);
+        else if (view.occupied) out.lerp(new Color('#ff7a3d'), 0.35);
         return out;
+      }
+      case 'frontline': {
+        if (!view.frontier) return out.set('#111821');
+        const pressure = Math.max(0, Math.min(1, view.frontlinePressure));
+        return out.set('#ff6b5a').lerp(new Color('#58a6ff'), pressure);
       }
       case 'terrain':
         return out.set(view.terrainColor);

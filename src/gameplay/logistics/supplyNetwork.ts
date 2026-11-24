@@ -4,6 +4,7 @@ import { capitalRegionOf, regionAt } from '../../data/regions';
 import type { CountryState } from '../country/types';
 import { areAllied } from '../diplomacy/helpers';
 import type { World } from '../World';
+import { findRegionState } from '../war/WarSystem';
 
 /**
  * Regional supply network.
@@ -47,21 +48,19 @@ const seedLevel = (regionId: string): number => {
 };
 
 const canHostSupply = (world: World, country: CountryState, regionId: string): boolean => {
-  const definition = regionAt(regionId);
-  if (!definition) return false;
-  const owner = world.get(definition.countryId);
+  const state = findRegionState(world, regionId);
+  if (!state) return false;
+  const owner = world.get(state.countryId);
   if (!owner) return false;
-  if (owner.id === country.id || owner.occupierId === country.id) return true;
+  const controller = state.controllerId ?? owner.id;
+  if (controller !== owner.id && controller !== country.id) return false;
+  if (owner.id === country.id || controller === country.id) return true;
   if (areAllied(country, owner)) return true;
   if (country.diplomacy.relations[owner.id]?.militaryAccess) return true;
   return false;
 };
 
-const regionStateOf = (world: World, regionId: string) => {
-  const definition = regionAt(regionId);
-  if (!definition) return undefined;
-  return world.get(definition.countryId)?.regions.find((region) => region.id === regionId);
-};
+const regionStateOf = (world: World, regionId: string) => findRegionState(world, regionId);
 
 export const computeSupplyField = (world: World, country: CountryState): SupplyField => {
   const levels = new Map<string, number>();
@@ -69,6 +68,7 @@ export const computeSupplyField = (world: World, country: CountryState): SupplyF
   const seedCosts = new Map<string, number>();
 
   for (const region of country.regions) {
+    if (region.controllerId && region.controllerId !== country.id) continue;
     if (!isSource(region.id, region.supplyHub)) continue;
     hubs.push(region.id);
     const definition = regionAt(region.id);
@@ -123,8 +123,10 @@ export const computeSupplyField = (world: World, country: CountryState): SupplyF
           (edge.fromRegionId === neighbourId || edge.toRegionId === neighbourId),
       );
       const terrainFactor = 1 / Math.max(0.4, terrain.supply);
+      const blockadePenalty = 1 + (country.warfare?.naval.blockadeEffect ?? 0) * 1.8;
       const step =
-        (distance / 380) * terrainFactor * (1.35 - Math.min(1, infrastructure) * 0.6) * (seaEdge ? 2.4 : 1) +
+        (distance / 380) * terrainFactor * (1.35 - Math.min(1, infrastructure) * 0.6) *
+          (seaEdge ? 2.4 * blockadePenalty : 1) +
         (state?.unrest ?? 0) * 8 +
         (state?.damage ?? 0) * 12;
       const nextCost = cost + step;

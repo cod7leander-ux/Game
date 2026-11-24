@@ -10,6 +10,7 @@ import { DiplomacyPanel } from '../panels/DiplomacyPanel';
 import { ProductionPanel } from '../panels/ProductionPanel';
 import { LogisticsPanel } from '../panels/LogisticsPanel';
 import { TerritoryPanel } from '../panels/TerritoryPanel';
+import { WarPanel } from '../panels/WarPanel';
 
 const TABS: Array<{ id: PanelTab; labelKey: MessageKey; glyph: string }> = [
   { id: 'overview', labelKey: 'panel.overview', glyph: '◈' },
@@ -20,6 +21,7 @@ const TABS: Array<{ id: PanelTab; labelKey: MessageKey; glyph: string }> = [
   { id: 'diplomacy', labelKey: 'panel.diplomacy', glyph: '✧' },
   { id: 'logistics', labelKey: 'panel.logistics', glyph: '⛟' },
   { id: 'territory', labelKey: 'panel.territory', glyph: '▦' },
+  { id: 'war', labelKey: 'panel.war', glyph: '⚑' },
 ];
 
 interface SidePanelProps {
@@ -58,6 +60,7 @@ export function SidePanel({ snapshot }: SidePanelProps) {
         {tab === 'diplomacy' && <DiplomacyPanel snapshot={snapshot} />}
         {tab === 'logistics' && <LogisticsPanel snapshot={snapshot} />}
         {tab === 'territory' && <TerritoryPanel snapshot={snapshot} />}
+        {tab === 'war' && <WarPanel snapshot={snapshot} />}
       </div>
     </aside>
   );

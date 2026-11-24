@@ -1,9 +1,10 @@
 import type { GameSpeed } from '../core/config';
 import type { CountryState, NotificationEntry } from '../gameplay/country/types';
 import type { SavedTacticalBattle } from '../gameplay/tactical/types';
+import type { Blockade, Frontline, PeaceOffer, War } from '../gameplay/war/types';
 
 /** Bump when the saved shape changes; add a migration in migrations.ts. */
-export const CURRENT_SAVE_VERSION = 5;
+export const CURRENT_SAVE_VERSION = 6;
 
 export const SAVE_SLOT_IDS = ['auto', '1', '2', '3', '4', '5'] as const;
 export type SaveSlotId = (typeof SAVE_SLOT_IDS)[number];
@@ -34,6 +35,11 @@ export interface SavedWorld {
     regionSource: string;
     version: number;
   };
+  /** M6 world-level war state; country-level warfare lives on each country. */
+  wars?: War[];
+  frontlines?: Frontline[];
+  blockades?: Blockade[];
+  peaceOffers?: PeaceOffer[];
 }
 
 export interface SavedClock {

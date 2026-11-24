@@ -112,6 +112,8 @@ export class EconomySystem {
     const tradeIncome = country.economy.gdp * TUNING.tradeIncomeFactor * tradePartners;
     const sanctioned = Object.values(country.diplomacy.relations).some((relation) => relation.sanctioned);
     const sanctionedPenalty = sanctioned ? 0.9 : 1;
+    const blockade = country.warfare?.naval.blockadeEffect ?? 0;
+    const blockadePenalty = 1 - blockade * 0.28;
 
     const incomeBase =
       (TUNING.baselineCredits + Math.pow(Math.max(1, economy.gdp), TUNING.gdpExponent) * TUNING.gdpFactor) *
@@ -123,7 +125,8 @@ export class EconomySystem {
       (0.72 + infrastructure * 0.36) *
       (1 - clamp01(country.unrest) * 0.2) *
       stabilityFactor *
-      sanctionedPenalty;
+      sanctionedPenalty *
+      blockadePenalty;
 
     const upkeep = dailyUpkeep(country) + country.production.construction.length * TUNING.constructionUpkeep;
     const corruption = economy.gdp * 0.00002;
@@ -138,6 +141,13 @@ export class EconomySystem {
     const produced = resourceProduction(country);
     const flow = createEmptyResources();
     flow.money = net;
+    if (blockade > 0) {
+      // Blockades throttle imports: resource income is reduced, production is not.
+      const imports = ['steel', 'oil', 'electronics', 'rare'] as const;
+      for (const resource of imports) {
+        produced[resource] *= 1 - blockade * 0.3;
+      }
+    }
 
     const industry = economy.industrialCapacity;
     for (const resource of ['steel', 'aluminum', 'electronics', 'rare'] as const) {

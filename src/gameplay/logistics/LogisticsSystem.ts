@@ -7,6 +7,8 @@ import { armyUnits, applyLosses, removeEmptyArmies, countryDistanceKm } from '..
 import { averageInfrastructure, terrainProfile } from '../regions/regions';
 import { capitalRegionOf } from '../../data/regions';
 import { computeSupplyField, supplyAtRegion, type SupplyField } from './supplyNetwork';
+import { REGION_GEO_BY_ID } from '../../geo';
+import { findRegionState } from '../war/WarSystem';
 
 /**
  * Lightweight operational logistics.
@@ -73,6 +75,8 @@ export const computeSupply = (
   const regionalOccupation = localRegion && localRegion.control !== 'sovereign' ? 0.88 : 1;
   const tech = 1 + country.modifiers.supply;
   const terrainSupply = (homeTerrain.supply + localTerrain.supply) / 2;
+  const blockade = country.warfare?.naval.blockadeEffect ?? 0;
+  const isolated = isArmyIsolated(world, country, army.regionId);
 
   const supply = clamp01(
     base *
@@ -81,14 +85,46 @@ export const computeSupply = (
       terrainSupply *
       occupationPenalty *
       regionalOccupation *
+      (1 - blockade * 0.28) *
+      (isolated ? 0.62 : 1) *
       tech,
   );
 
   return {
     supply,
     source,
-    reason: source ? 'connected' : 'unsupported',
+    reason: isolated ? 'encircled' : source ? 'connected' : 'unsupported',
   };
+};
+
+/**
+ * A regional isolation test: an army is encircled when its region has no
+ * adjacent friendly-controlled region and it is not standing on home soil.
+ */
+export const isArmyIsolated = (
+  world: World,
+  country: CountryState,
+  regionId: string | undefined,
+): boolean => {
+  if (!regionId) return false;
+  const state = findRegionState(world, regionId);
+  if (!state) return false;
+  if (state.countryId === country.id && !state.controllerId) return false;
+  const geo = REGION_GEO_BY_ID[regionId];
+  if (!geo) return false;
+  for (const neighbourId of geo.neighbours) {
+    const neighbour = findRegionState(world, neighbourId);
+    if (!neighbour) continue;
+    const controller = neighbour.controllerId ?? neighbour.countryId;
+    if (
+      controller === country.id ||
+      country.diplomacy.allies.includes(controller) ||
+      country.diplomacy.relations[controller]?.militaryAccess
+    ) {
+      return false;
+    }
+  }
+  return true;
 };
 
 export class LogisticsSystem {
@@ -109,11 +145,21 @@ export class LogisticsSystem {
 
       for (const army of country.military.armies) {
         const result = computeSupply(world, country, army, field);
+        army.isolated = isArmyIsolated(world, country, army.regionId);
+        if (army.isolated) army.encircledDays += 1;
+        else army.encircledDays = Math.max(0, army.encircledDays - 2);
         // Supply recovers quickly, degrades slowly: advances get harder over time.
         const rate = result.supply > army.supply ? 0.22 : 0.12;
         army.supply = clamp01(army.supply + (result.supply - army.supply) * rate);
         army.supplySource = result.source;
         supplied += army.supply;
+        if (result.reason === 'encircled') {
+          army.morale = clamp01(army.morale - 0.004);
+          army.readiness = clamp01(army.readiness - 0.005);
+        } else {
+          army.morale = clamp01(army.morale + 0.001);
+          army.readiness = clamp01(army.readiness + 0.001);
+        }
 
         if (army.supply < SUPPLY_THRESHOLD) {
           army.daysLowSupply += 1;

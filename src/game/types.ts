@@ -20,7 +20,8 @@ export type MapLayerId =
   | 'supply'
   | 'military'
   | 'diplomacy'
-  | 'objectives';
+  | 'objectives'
+  | 'frontline';
 
 export interface ResourceView {
   id: ResourceId;
@@ -60,6 +61,13 @@ export interface RegionView {
   neighbours: string[];
   armies: Array<{ id: string; name: string; units: number }>;
   occupiedBy: string | null;
+  controllerId: string;
+  controllerName: string;
+  controlStatus: 'controlled' | 'contested' | 'occupied' | 'liberated' | 'recentlyCaptured';
+  occupationProgress: number;
+  resistance: number;
+  frontlineId: string | null;
+  airDefense: number;
   gdpShare: number;
 }
 
@@ -105,6 +113,12 @@ export interface MapRegionView {
   atWar: boolean;
   ownerName: string;
   name: string;
+  /** Region controller and occupation state, independent of sovereignty. */
+  controllerId: string;
+  controllerName: string;
+  controlStatus: 'controlled' | 'contested' | 'occupied' | 'liberated' | 'recentlyCaptured';
+  frontlinePressure: number;
+  frontier: boolean;
 }
 
 /** Objective with a map target, so selecting it can focus the camera. */
@@ -228,6 +242,15 @@ export interface ArmyView {
   /** Remaining country hops of a multi-hop strategic route. */
   route: string[];
   regionId: string;
+  posture: string;
+  commander: string;
+  morale: number;
+  readiness: number;
+  isolated: boolean;
+  encircledDays: number;
+  groupId: string | null;
+  frontlineId: string | null;
+  objectiveRegionId: string | null;
 }
 
 /** Lightweight marker consumed by the 3D army layer. */
@@ -346,6 +369,167 @@ export interface ResearchView {
   completed: string[];
 }
 
+export interface WarGoalView {
+  id: string;
+  type: string;
+  ownerId: string;
+  ownerName: string;
+  targetName: string | null;
+  priority: number;
+  status: 'active' | 'completed' | 'failed';
+  progress: number;
+}
+
+export interface WarParticipantView {
+  id: string;
+  name: string;
+  side: 'attacker' | 'defender';
+  casualties: number;
+  joinedDay: number;
+}
+
+export interface WarView {
+  id: string;
+  startDay: number;
+  status: string;
+  role: 'attacker' | 'defender' | 'observer';
+  score: number;
+  attackerScore: number;
+  exhaustion: number;
+  participants: WarParticipantView[];
+  goals: WarGoalView[];
+  fronts: number;
+  battles: number;
+  occupiedRegions: number;
+  canOfferPeace: boolean;
+  opponentId: string | null;
+  opponentName: string | null;
+}
+
+export interface FrontlineView {
+  id: string;
+  warId: string;
+  attackerId: string;
+  attackerName: string;
+  defenderId: string;
+  defenderName: string;
+  regionIds: string[];
+  regionNames: string[];
+  priority: number;
+  attackerStrength: number;
+  defenderStrength: number;
+  attackerSupply: number;
+  defenderSupply: number;
+  pressure: number;
+  status: string;
+  objectiveRegionId: string | null;
+  objectiveName: string | null;
+}
+
+export interface ArmyGroupView {
+  id: string;
+  name: string;
+  memberArmyIds: string[];
+  memberNames: string[];
+  objectiveRegionId: string | null;
+  objectiveName: string | null;
+  frontlineId: string | null;
+  priority: number;
+  posture: string;
+}
+
+export interface OperationView {
+  id: string;
+  type: string;
+  status: string;
+  armyIds: string[];
+  targetRegionIds: string[];
+  targetNames: string[];
+  frontlineId: string | null;
+  priority: number;
+  startDay: number;
+  progress: number;
+}
+
+export interface AirView {
+  superiority: number;
+  readiness: number;
+  coverage: number;
+  airStrength: number;
+  formations: number;
+  missions: Array<{
+    id: string;
+    type: string;
+    targetRegionId: string | null;
+    targetName: string | null;
+    daysRemaining: number;
+    status: string;
+  }>;
+}
+
+export interface NavalView {
+  strength: number;
+  formations: number;
+  blockadeEffect: number;
+  taskForces: Array<{
+    id: string;
+    name: string;
+    role: string;
+    strength: number;
+    readiness: number;
+    homePortName: string | null;
+    mission: string;
+  }>;
+  blockades: Array<{
+    id: string;
+    blockaderId: string;
+    blockaderName: string;
+    targetId: string;
+    targetName: string;
+    effectiveness: number;
+    active: boolean;
+  }>;
+}
+
+export interface MissileView {
+  readiness: number;
+  stockpile: Array<{ type: string; count: number }>;
+  cooldownDays: number;
+  lastTargetName: string | null;
+}
+
+export interface PeaceOfferView {
+  id: string;
+  warId: string;
+  proposerId: string;
+  proposerName: string;
+  recipientId: string;
+  recipientName: string;
+  day: number;
+  status: string;
+  terms: string[];
+  canAccept: boolean;
+}
+
+export interface WarfareView {
+  wars: WarView[];
+  frontlines: FrontlineView[];
+  groups: ArmyGroupView[];
+  operations: OperationView[];
+  air: AirView;
+  naval: NavalView;
+  missiles: MissileView;
+  peaceOffers: PeaceOfferView[];
+  plans: Array<{
+    id: string;
+    kind: string;
+    priority: number;
+    rationale: string;
+    targetName: string | null;
+    status: string;
+  }>;
+}
+
 export interface PlayerSnapshot {
   day: number;
   year: number;
@@ -417,6 +601,8 @@ export interface PlayerSnapshot {
     armies: ArmySupplyView[];
     supplyHubs: number;
   };
+  /** Multi-country wars, fronts, command and strategic warfare assets. */
+  warfare: WarfareView;
   cities: CityDefinition[];
   warnings: string[];
   notifications: NotificationEntry[];

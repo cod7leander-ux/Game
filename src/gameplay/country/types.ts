@@ -7,6 +7,7 @@ import type { ResearchState } from '../research/types';
 import type { RegionState } from '../regions/types';
 import type { StrategicObjective } from '../objectives/types';
 import type { ProductionState } from '../production/types';
+import type { CountryWarfareState } from '../war/types';
 
 export interface GeoBounds {
   minLon: number;
@@ -71,6 +72,8 @@ export interface CountryState {
   objectives: StrategicObjective[];
   /** Civilian construction queue and allocation state. */
   production: ProductionState;
+  /** Wars, fronts, army groups, operations, air, naval, missile and AI plan state. */
+  warfare: CountryWarfareState;
   /** Country currently occupying this territory, if any. */
   occupierId: string | null;
   /** Runtime accumulators. */

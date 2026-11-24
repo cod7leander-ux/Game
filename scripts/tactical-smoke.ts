@@ -303,7 +303,7 @@ assert(battles > 0 || (campaignPlayer.occupierId === null && campaign.world.get(
 log(`campaign ran 120 days: ${battles} battle(s)`);
 
 // ── Save version and migration ──────────────────────────────────────────────
-assert(CURRENT_SAVE_VERSION === 5, 'save schema is version 5');
+assert(CURRENT_SAVE_VERSION === 6, 'save schema is version 6');
 const payload = campaign.toSavePayload();
 const file = JSON.parse(
   JSON.stringify({ ...payload, slot: '1', version: CURRENT_SAVE_VERSION, updatedAt: Date.now() }),
@@ -323,7 +323,7 @@ for (const country of legacy.world.countries) {
   for (const army of country.military.armies) delete army.formation;
 }
 const migrated = migrateSave(legacy);
-assert(migrated.version === CURRENT_SAVE_VERSION, 'v2 saves migrate to v3');
+assert(migrated.version === CURRENT_SAVE_VERSION, 'v2 saves migrate to the current schema');
 assert(Array.isArray(migrated.battlefields), 'migration adds an empty battlefield list');
 assert(
   migrated.world.countries.every((country) => country.military.armies.every((army) => army.formation === 'line')),
