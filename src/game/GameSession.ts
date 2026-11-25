@@ -3,6 +3,10 @@ import { GAME, type GameSpeed } from '../core/config';
 import { COUNTRY_BY_ID } from '../data/countries';
 import { getTech } from '../data/research';
 import { getProject } from '../data/production';
+import { getPolicy } from '../data/policies';
+import { SITUATIONS } from '../data/situations';
+import { RESOURCES } from '../data/resources';
+import { regionAt } from '../data/regions';
 import { getUnit } from '../data/units';
 import { translate } from '../i18n';
 import { formatGameDate, formatNumber, gameYear } from '../i18n/format';
@@ -34,10 +38,13 @@ import { buildPlayerSnapshot } from './snapshot';
  * goes through this object, which makes save/load and future replay support a
  * single boundary rather than a scattering of globals.
  */
-const DIFFICULTY: Record<CampaignDifficulty, { treasury: number; stockpile: number; stability: number }> = {
-  relaxed: { treasury: 1.25, stockpile: 1.15, stability: 0.02 },
-  standard: { treasury: 1, stockpile: 1, stability: 0 },
-  hardened: { treasury: 0.82, stockpile: 0.9, stability: -0.03 },
+const DIFFICULTY: Record<
+  CampaignDifficulty,
+  { treasury: number; stockpile: number; stability: number; aiIndustry: number; aiRecovery: number }
+> = {
+  relaxed: { treasury: 1.25, stockpile: 1.15, stability: 0.02, aiIndustry: 0.94, aiRecovery: 0.94 },
+  standard: { treasury: 1, stockpile: 1, stability: 0, aiIndustry: 1, aiRecovery: 1 },
+  hardened: { treasury: 0.82, stockpile: 0.9, stability: -0.03, aiIndustry: 1.08, aiRecovery: 1.07 },
 };
 
 export interface CreateCampaignOptions {
@@ -59,6 +66,8 @@ export class GameSession {
   readonly difficulty: CampaignDifficulty;
   unread = 0;
   locale: LocaleCode;
+  /** Player-supplied save label. */
+  saveName: string | null = null;
   /** Tactical unit selected by the player (presentation state, not saved). */
   selectedUnitId: string | null = null;
   /** Province inspected by the player (presentation state, not saved). */
@@ -94,14 +103,21 @@ export class GameSession {
     const session = new GameSession(world, clock, options.locale, difficulty, Date.now());
 
     const player = world.player;
+    const tuning = DIFFICULTY[difficulty];
     if (player) {
-      const tuning = DIFFICULTY[difficulty];
       player.economy.resources.money *= tuning.treasury;
       for (const key of Object.keys(player.economy.resources) as Array<keyof typeof player.economy.resources>) {
         if (key === 'money') continue;
         player.economy.resources[key] *= tuning.stockpile;
       }
       player.stability = Math.min(0.95, Math.max(0.35, player.stability + tuning.stability));
+    }
+    // Difficulty changes systemic pressure, never content: AI economies and
+    // recovery rates shift, but every system and nation remains available.
+    for (const country of world.countries.values()) {
+      if (country.id === options.countryId) continue;
+      country.economy.industrialCapacity *= tuning.aiIndustry;
+      country.military.readiness = Math.min(0.98, country.military.readiness * tuning.aiRecovery);
     }
 
     session.pushNotification({
@@ -125,6 +141,9 @@ export class GameSession {
         frontlines: file.world.frontlines,
         blockades: file.world.blockades,
         peaceOffers: file.world.peaceOffers,
+        market: file.world.market,
+        tradeRoutes: file.world.tradeRoutes,
+        situations: file.world.situations,
       },
     );
     const clock = new SimClock(GAME.msPerDay, file.clock.day);
@@ -138,6 +157,7 @@ export class GameSession {
     );
     Simulation.rehydrate(world);
     session.simulation.restoreBattlefields(file.battlefields);
+    session.saveName = file.meta.customName ?? null;
     session.notifications.push(...(file.notifications ?? []).slice(-GAME.notificationLimit));
     session.unread = 0;
     session.lastAutosaveDay = clock.day;
@@ -300,17 +320,90 @@ export class GameSession {
   }
 
   /** Civilian construction in one of the player's regions. */
-  startConstruction(projectId: string, regionId: string): boolean {
+  startConstruction(
+    projectId: string,
+    regionId: string,
+    priority: 'low' | 'normal' | 'high' = 'normal',
+  ): boolean {
     return this.simulation.startConstruction(
       this.world.playerCountryId,
       projectId,
       regionId,
+      priority,
     );
   }
 
   /** Adjusts the national budget split between army, construction and research. */
   setAllocation(allocation: { military: number; infrastructure: number; research: number }): boolean {
     return this.simulation.setAllocation(this.world.playerCountryId, allocation);
+  }
+
+  cancelConstruction(orderId: string): boolean {
+    return this.simulation.cancelConstruction(this.world.playerCountryId, orderId);
+  }
+
+  setConstructionPriority(orderId: string, priority: 'low' | 'normal' | 'high'): boolean {
+    return this.simulation.setConstructionPriority(
+      this.world.playerCountryId,
+      orderId,
+      priority,
+    );
+  }
+
+  setPolicy(policyId: string, enabled: boolean): boolean {
+    return this.simulation.setPolicy(this.world.playerCountryId, policyId, enabled);
+  }
+
+  setMobilization(level: number): boolean {
+    return this.simulation.setMobilization(this.world.playerCountryId, level);
+  }
+
+  establishTradeRoute(
+    partnerId: string,
+    resource: string,
+    amount: number,
+    contract = false,
+  ): ReturnType<Simulation['establishTradeRoute']> {
+    return this.simulation.establishTradeRoute(
+      this.world.playerCountryId,
+      partnerId,
+      resource,
+      amount,
+      contract,
+    );
+  }
+
+  cancelTradeRoute(routeId: string): boolean {
+    return this.simulation.cancelTradeRoute(this.world.playerCountryId, routeId);
+  }
+
+  queueMissile(type: MissileType): ReturnType<Simulation['queueMissile']> {
+    return this.simulation.queueMissile(this.world.playerCountryId, type);
+  }
+
+  startNavalInvasion(armyId: string, targetRegionId: string) {
+    return this.simulation.startNavalInvasion(
+      this.world.playerCountryId,
+      armyId,
+      targetRegionId,
+    );
+  }
+
+  startAirlift(armyId: string, targetRegionId: string, kind: 'redeploy' | 'supply' = 'redeploy') {
+    return this.simulation.startAirlift(
+      this.world.playerCountryId,
+      armyId,
+      targetRegionId,
+      kind,
+    );
+  }
+
+  transportCapacity(): number {
+    return this.simulation.transportCapacity(this.world.playerCountryId);
+  }
+
+  openTrade(targetId: string): boolean {
+    return this.simulation.openTrade(this.world.playerCountryId, targetId);
   }
 
   improveRelations(targetId: string): boolean {
@@ -613,6 +706,146 @@ export class GameSession {
         });
         return;
       }
+      case 'tradeRouteOpened': {
+        if (event.countryId !== playerId && event.partnerId !== playerId) return;
+        const partnerId = event.countryId === playerId ? event.partnerId : event.countryId;
+        const route = this.world.tradeRoutes[event.routeId];
+        const resource = route ? RESOURCES[route.resource].name : null;
+        this.pushNotification({
+          kind: 'trade',
+          message: translate(locale, 'notify.tradeRoute', {
+            partner: countryName(partnerId),
+            resource: resource ? localize(resource, locale) : '—',
+          }),
+          severity: 'success',
+        });
+        return;
+      }
+      case 'tradeDisrupted': {
+        if (event.countryId !== playerId) return;
+        const route = this.world.tradeRoutes[event.routeId];
+        this.pushNotification({
+          kind: 'trade',
+          message: translate(locale, 'notify.tradeDisrupted', {
+            resource: route ? localize(RESOURCES[route.resource].name, locale) : '—',
+          }),
+          severity: event.severity === 'severe' ? 'danger' : 'warning',
+        });
+        return;
+      }
+      case 'navalInvasionStarted': {
+        if (event.countryId !== playerId) return;
+        const region = regionAt(event.targetRegionId);
+        this.pushNotification({
+          kind: 'war',
+          message: translate(locale, 'notify.invasionStarted', {
+            region: region ? localize(region.name, locale) : event.targetRegionId,
+          }),
+          severity: 'info',
+        });
+        return;
+      }
+      case 'navalInvasionLanded': {
+        if (event.countryId !== playerId) return;
+        const region = regionAt(event.regionId);
+        this.pushNotification({
+          kind: 'war',
+          message: translate(locale, 'notify.invasionLanded', {
+            region: region ? localize(region.name, locale) : event.regionId,
+          }),
+          severity: 'success',
+        });
+        return;
+      }
+      case 'navalInvasionFailed': {
+        if (event.countryId !== playerId) return;
+        const region = regionAt(event.targetRegionId);
+        this.pushNotification({
+          kind: 'war',
+          message: translate(locale, 'notify.invasionFailed', {
+            region: region ? localize(region.name, locale) : event.targetRegionId,
+          }),
+          severity: 'danger',
+        });
+        return;
+      }
+      case 'airliftCompleted': {
+        if (event.countryId !== playerId) return;
+        const region = regionAt(event.targetRegionId);
+        this.pushNotification({
+          kind: 'production',
+          message: translate(locale, 'notify.airliftDone', {
+            region: region ? localize(region.name, locale) : event.targetRegionId,
+          }),
+          severity: 'success',
+        });
+        return;
+      }
+      case 'airliftFailed': {
+        if (event.countryId !== playerId) return;
+        const region = regionAt(event.targetRegionId);
+        this.pushNotification({
+          kind: 'war',
+          message: translate(locale, 'notify.airliftFailed', {
+            region: region ? localize(region.name, locale) : event.targetRegionId,
+          }),
+          severity: 'danger',
+        });
+        return;
+      }
+      case 'policyChanged': {
+        if (event.countryId !== playerId) return;
+        const policy = getPolicy(event.policyId);
+        if (!policy) return;
+        this.pushNotification({
+          kind: 'policy',
+          message: translate(locale, 'notify.policy', {
+            policy: localize(policy.name, locale),
+          }),
+          severity: 'info',
+        });
+        return;
+      }
+      case 'situationStarted': {
+        if (event.countryId !== playerId) return;
+        const definition = SITUATIONS.find((entry) => entry.id === event.definitionId);
+        if (!definition) return;
+        this.pushNotification({
+          kind: 'situation',
+          message: translate(locale, 'notify.situation', {
+            situation: localize(definition.name, locale),
+          }),
+          severity:
+            event.severity === 'major'
+              ? 'danger'
+              : event.severity === 'moderate'
+                ? 'warning'
+                : 'info',
+        });
+        return;
+      }
+      case 'situationEnded': {
+        if (event.countryId !== playerId) return;
+        const definition = SITUATIONS.find((entry) => entry.id === event.definitionId);
+        if (!definition) return;
+        this.pushNotification({
+          kind: 'situation',
+          message: translate(locale, 'notify.situationEnded', {
+            situation: localize(definition.name, locale),
+          }),
+          severity: 'success',
+        });
+        return;
+      }
+      case 'missileProduced': {
+        if (event.countryId !== playerId) return;
+        this.pushNotification({
+          kind: 'production',
+          message: translate(locale, 'missile.produced'),
+          severity: 'success',
+        });
+        return;
+      }
       default:
         return;
     }
@@ -648,6 +881,10 @@ export class GameSession {
       id: `campaign-${this.world.seed}-${this.createdAt}`,
       createdAt: this.createdAt,
       meta: {
+        customName: this.saveName ?? undefined,
+        name:
+          this.saveName?.trim() ||
+          `${localize(definition.name, this.locale)} — ${this.dateLabel(this.locale)}`,
         countryId: player.id,
         countryName: localize(definition.name, this.locale),
         iso2: definition.iso2,
@@ -672,6 +909,9 @@ export class GameSession {
         frontlines: Object.values(this.world.frontlines),
         blockades: this.world.blockades,
         peaceOffers: this.world.peaceOffers,
+        market: this.world.market,
+        tradeRoutes: this.world.tradeRoutes,
+        situations: this.world.situations,
       },
       clock: {
         day: this.clock.day,

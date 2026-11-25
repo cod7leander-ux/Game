@@ -423,11 +423,11 @@ session.world.get(occupiedCountry)!.occupierId = null;
 log('map: region inspection, ownership and occupation visual state verified');
 
 // ── Save v5 and migrations ──────────────────────────────────────────────────
-assert(CURRENT_SAVE_VERSION === 6, 'save schema is version 6');
+assert(CURRENT_SAVE_VERSION === 7, 'save schema is version 7');
 const payload = {
   ...session.toSavePayload(),
   slot: '1' as const,
-  version: 6,
+  version: 7,
   updatedAt: Date.now(),
 };
 assert(payload.world.geography?.provider === GEOGRAPHY.id, 'saves store a geography reference, not geometry');
@@ -440,12 +440,12 @@ assert(
   'saves carry army anchor and route state',
 );
 const roundTrip = migrateSave(JSON.parse(JSON.stringify(payload)));
-assert(roundTrip.version === 6, 'v6 save round-trips');
+assert(roundTrip.version === 7, 'v7 save round-trips');
 assert(
   roundTrip.world.countries.every((country) =>
     country.regions.every((entry) => typeof entry.supplyLevel === 'number'),
   ),
-  'v6 round-trip keeps regional supply',
+  'v7 round-trip keeps regional supply',
 );
 
 const legacy = JSON.parse(JSON.stringify(payload));
@@ -461,7 +461,7 @@ for (const country of legacy.world.countries as Array<Record<string, unknown>>) 
   }
 }
 const migrated = migrateSave(legacy);
-assert(migrated.version === 6, 'v4 migrates through v5 to v6');
+assert(migrated.version === 7, 'v4 migrates through v5 to v7');
 assert(migrated.world.countries.every((country) => country.regions.every((entry) => typeof entry.supplyLevel === 'number')), 'v4 → v5 adds regional supply');
 assert(migrated.world.countries.every((country) => country.military.armies.every((entry) => entry.regionId && entry.route.length === 0)), 'v4 → v5 anchors armies and clears routes');
 assert(migrated.world.geography?.regionSource, 'v4 → v5 records the geography provider');
@@ -482,15 +482,15 @@ for (const country of ancient.world.countries as Array<Record<string, unknown>>)
   delete legacyMilitary.armies;
 }
 const chained = migrateSave(ancient);
-assert(chained.version === 6, 'v1 migrates through v2, v3, v4, v5 to v6');
-assert(chained.world.countries.every((country) => country.military.armies.length > 0), 'v1 → v6 keeps armies');
-assert(chained.world.countries.every((country) => country.regions.length > 0), 'v1 → v6 creates provinces');
-assert(chained.world.geography?.provider, 'v1 → v6 records geography');
+assert(chained.version === 7, 'v1 migrates through v2, v3, v4, v5, v6 to v7');
+assert(chained.world.countries.every((country) => country.military.armies.length > 0), 'v1 → v7 keeps armies');
+assert(chained.world.countries.every((country) => country.regions.length > 0), 'v1 → v7 creates provinces');
+assert(chained.world.geography?.provider, 'v1 → v7 records geography');
 assert(
   chained.world.countries.every((country) => country.military.armies.every((army) => army.posture && army.readiness > 0)),
-  'v1 → v6 adds army posture and readiness',
+  'v1 → v7 adds army posture and readiness',
 );
-log('v1 → v2 → v3 → v4 → v5 → v6 chain preserved');
+log('v1 → v2 → v3 → v4 → v5 → v6 → v7 chain preserved');
 
 // ── Long deterministic campaign ─────────────────────────────────────────────
 const campaign = GameSession.create({ countryId: 'KWT', locale: 'en', difficulty: 'standard' });

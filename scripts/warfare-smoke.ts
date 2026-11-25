@@ -14,7 +14,7 @@ import { DEFAULT_EVALUATORS, decide, type AIContext } from '../src/gameplay/ai/A
  * Milestone 6 suite: multi-country wars, goals, score, exhaustion, regional
  * control, fronts, army groups, operations, supply isolation, air/naval/
  * blockade/missile foundations, peace and annexation, strategic AI
- * personalities, save v6 and a full-year campaign.
+ * personalities, save v7 and a full-year campaign.
  *
  * No renderer, no browser and no randomness outside the simulation's seeded
  * RNG, so results are deterministic.
@@ -225,10 +225,10 @@ const cooldown = session.simulation.launchMissile(player.id, missileTarget.id, '
 assert(!cooldown.ok && cooldown.reason === 'cooldown', 'cooldown blocks an immediate second strike');
 log('missiles: neutral target, resource cost, stockpile and cooldown verified');
 
-// ── Save v6 round trip before peace changes the map ─────────────────────────
-assert(CURRENT_SAVE_VERSION === 6, 'save schema is version 6');
+// ── Save v7 round trip before peace changes the map ─────────────────────────
+assert(CURRENT_SAVE_VERSION === 7, 'save schema is version 7');
 const payload = JSON.parse(
-  JSON.stringify({ ...session.toSavePayload(), slot: '1', version: 6, updatedAt: Date.now() }),
+  JSON.stringify({ ...session.toSavePayload(), slot: '1', version: 7, updatedAt: Date.now() }),
 ) as SaveFile;
 assert((payload.world.wars ?? []).length >= 1, 'save carries wars');
 assert((payload.world.frontlines ?? []).length > 0, 'save carries fronts');
@@ -253,9 +253,9 @@ assert(
   loaded.world.player!.military.armies.every((entry) => typeof entry.posture === 'string'),
   'army postures round-trip',
 );
-log('save v6: wars, fronts, controllers and command state round-trip');
+log('save v7: wars, fronts, controllers and command state round-trip');
 
-// ── v5 → v6 migration ──────────────────────────────────────────────────────
+// ── v5 → v7 migration ──────────────────────────────────────────────────────
 const legacy = JSON.parse(JSON.stringify(payload)) as SaveFile & Record<string, unknown>;
 legacy.version = 5;
 delete (legacy.world as Record<string, unknown>).wars;
@@ -286,19 +286,19 @@ for (const country of legacy.world.countries as Array<Record<string, unknown>>) 
   }
 }
 const migrated = migrateSave(legacy as unknown as Record<string, unknown>);
-assert(migrated.version === 6, 'v5 migrates to v6');
-assert(Array.isArray((migrated.world as Record<string, unknown>).wars), 'v5 → v6 creates the war registry');
+assert(migrated.version === 7, 'v5 migrates to v7');
+assert(Array.isArray((migrated.world as Record<string, unknown>).wars), 'v5 → v7 creates the war registry');
 assert(
   (migrated.world.countries as Array<{ warfare?: unknown }>).every((country) => country.warfare),
-  'v5 → v6 adds warfare state',
+  'v5 → v7 adds warfare state',
 );
 assert(
   (migrated.world.countries as Array<{ military: { armies: Array<{ posture?: string }> } }>).every(
     (country) => country.military.armies.every((entry) => typeof entry.posture === 'string'),
   ),
-  'v5 → v6 adds army posture',
+  'v5 → v7 adds army posture',
 );
-log('v5 → v6 migration adds war, command and regional-control state');
+log('v5 → v7 migration adds war, command and regional-control state');
 
 // ── Peace and annexation ────────────────────────────────────────────────────
 const peaceWar = activeWar();

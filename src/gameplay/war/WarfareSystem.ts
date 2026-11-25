@@ -125,6 +125,7 @@ const ensureState = (country: CountryState): void => {
       missiles: {
         readiness: 0.5,
         stockpile: { tactical: 4, cruise: 2, ballistic: 1 },
+        production: [],
         cooldownUntilDay: 0,
         lastStrikeDay: 0,
         lastTargetRegionId: null,
@@ -143,10 +144,12 @@ const ensureState = (country: CountryState): void => {
   country.warfare.missiles ??= {
     readiness: 0.5,
     stockpile: { tactical: 4, cruise: 2, ballistic: 1 },
+    production: [],
     cooldownUntilDay: 0,
     lastStrikeDay: 0,
     lastTargetRegionId: null,
   };
+  country.warfare.missiles.production ??= [];
   country.warfare.groups ??= [];
   country.warfare.operations ??= [];
   country.warfare.plans ??= [];
@@ -666,12 +669,27 @@ export class WarfareSystem {
     state.cooldownUntilDay = day + (type === 'tactical' ? 3 : type === 'cruise' ? 5 : 8);
     state.lastStrikeDay = day;
     state.lastTargetRegionId = targetRegionId;
-    const damage = type === 'tactical' ? 0.12 : type === 'cruise' ? 0.18 : 0.26;
+    const defender = world.get(target.countryId);
+    const interception = clamp01(
+      (target.airDefense ?? 0) * 0.45 +
+        (defender?.warfare.air.superiority ?? 0.5) * 0.2 +
+        (defender?.policy?.active.includes('pol_civil_defence') ? 0.12 : 0),
+    );
+    const damage =
+      (type === 'tactical' ? 0.12 : type === 'cruise' ? 0.18 : 0.26) *
+      (1 - interception * 0.7);
     target.damage = clamp01(target.damage + damage);
     target.infrastructure = clamp01(target.infrastructure - damage * 0.35);
     target.supplyLevel = clamp01(target.supplyLevel - damage * 1.2);
     target.supplyHub = clamp01(target.supplyHub - damage * 0.25);
     target.airDefense = clamp01(target.airDefense - damage * 0.5);
+    const relation = defender?.diplomacy.relations[country.id];
+    if (relation) {
+      relation.value = Math.max(-100, relation.value - (type === 'ballistic' ? 22 : 12));
+      relation.threat = clamp01((relation.threat ?? 0) + 0.12);
+      relation.trust = Math.max(-1, (relation.trust ?? 0) - 0.08);
+    }
+    country.stability = clamp01(country.stability - 0.002);
     this.events.emit({
       type: 'missileStrike',
       countryId: country.id,

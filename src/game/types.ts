@@ -56,6 +56,18 @@ export interface RegionView {
   output: Array<{ id: ResourceId; name: string; amount: number }>;
   selected: boolean;
   cities: CityView[];
+  workingPopulation: number;
+  militaryAgePopulation: number;
+  populationCapacity: number;
+  civilianIndustry: number;
+  militaryIndustry: number;
+  constructionCapacity: number;
+  airportCapacity: number;
+  portCapacity: number;
+  extractionCapacity: number;
+  development: number;
+  radar: number;
+  fortification: number;
   airports: Array<{ id: string; name: string; level: number; capacity: number; military: boolean }>;
   ports: Array<{ id: string; name: string; level: number; capacity: number }>;
   neighbours: string[];
@@ -79,6 +91,8 @@ export interface CityView {
   population: number;
   strategicValue: number;
   industrialValue: number;
+  /** 0..1 development inherited from the surrounding region. */
+  development: number;
   hasAirport: boolean;
   hasPort: boolean;
   isCapital: boolean;
@@ -141,11 +155,13 @@ export interface ProductionProjectView {
 
 export interface ConstructionView {
   id: string;
+  projectId: string;
   projectName: string;
   regionName: string;
   daysRemaining: number;
   totalDays: number;
   progress: number;
+  priority: 'low' | 'normal' | 'high';
 }
 
 export interface ObjectiveView {
@@ -494,8 +510,137 @@ export interface NavalView {
 export interface MissileView {
   readiness: number;
   stockpile: Array<{ type: string; count: number }>;
+  production: Array<{ type: string; daysRemaining: number; totalDays: number }>;
   cooldownDays: number;
   lastTargetName: string | null;
+}
+
+export interface PopulationRegionView {
+  id: string;
+  name: string;
+  population: number;
+  workingPopulation: number;
+  militaryAgePopulation: number;
+  populationCapacity: number;
+  civilianIndustry: number;
+  militaryIndustry: number;
+  constructionCapacity: number;
+  airportCapacity: number;
+  portCapacity: number;
+  extractionCapacity: number;
+  development: number;
+  radar: number;
+  fortification: number;
+}
+
+export interface PopulationView {
+  population: number;
+  workingPopulation: number;
+  militaryAgePopulation: number;
+  manpowerPool: number;
+  mobilized: number;
+  casualties: number;
+  recruitmentPressure: number;
+  growthRate: number;
+  mobilization: number;
+  regions: PopulationRegionView[];
+}
+
+export interface TradeRouteView {
+  id: string;
+  partnerId: string;
+  partnerName: string;
+  resource: string;
+  resourceName: string;
+  amount: number;
+  kind: 'land' | 'sea' | 'contract';
+  throughput: number;
+  disruption: number;
+  active: boolean;
+  side: 'import' | 'export';
+}
+
+export interface TradeView {
+  prices: Array<{ id: string; name: string; price: number }>;
+  routes: TradeRouteView[];
+  partners: Array<{ id: string; name: string; agreed: boolean; atWar: boolean }>;
+  income: number;
+  expenses: number;
+  disruption: number;
+  shortages: string[];
+  surpluses: string[];
+  volume: number;
+}
+
+export interface IntelligenceContactView {
+  countryId: string;
+  name: string;
+  confidence: number;
+  estimatedArmyStrength: number;
+  estimatedNavalStrength: number;
+  estimatedAirStrength: number;
+  detectedFormations: number;
+  lastSeenDay: number;
+  source: string;
+}
+
+export interface IntelligenceView {
+  coverage: number;
+  confidence: number;
+  detection: number;
+  radarCoverage: number;
+  contacts: IntelligenceContactView[];
+}
+
+export interface PolicyView {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  active: boolean;
+  upkeep: number;
+  politicalCost: number;
+  effects: string[];
+}
+
+export interface PolicySummaryView {
+  active: string[];
+  available: PolicyView[];
+  mobilization: number;
+  slots: number;
+  maxSlots: number;
+}
+
+export interface SituationView {
+  id: string;
+  name: string;
+  description: string;
+  severity: 'minor' | 'moderate' | 'major';
+  countryName: string;
+  startDay: number;
+  endDay: number;
+  active: boolean;
+}
+
+export interface ManeuverView {
+  transportCapacity: number;
+  airliftCapacity: number;
+  invasions: Array<{
+    id: string;
+    armyName: string;
+    targetName: string;
+    phase: 'embark' | 'sailing' | 'landing';
+    progress: number;
+    daysRemaining: number;
+  }>;
+  airlifts: Array<{
+    id: string;
+    armyName: string;
+    targetName: string;
+    kind: 'redeploy' | 'supply';
+    progress: number;
+    daysRemaining: number;
+  }>;
 }
 
 export interface PeaceOfferView {
@@ -600,7 +745,23 @@ export interface PlayerSnapshot {
     averageSupply: number;
     armies: ArmySupplyView[];
     supplyHubs: number;
+    throughput: number;
+    convoyCapacity: number;
+    disruption: number;
+    bottlenecks: Array<{ id: string; name: string; supply: number }>;
   };
+  /** Population, manpower and regional industry. */
+  society: PopulationView;
+  /** Trade routes, market prices and shortages. */
+  trade: TradeView;
+  /** Reconnaissance and foreign contacts. */
+  intelligence: IntelligenceView;
+  /** Enacted national policies and mobilisation. */
+  policies: PolicySummaryView;
+  /** Active and recent emergent situations. */
+  situations: SituationView[];
+  /** Naval invasions, airlifts and transport capacity. */
+  maneuver: ManeuverView;
   /** Multi-country wars, fronts, command and strategic warfare assets. */
   warfare: WarfareView;
   cities: CityDefinition[];

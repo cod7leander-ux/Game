@@ -10,6 +10,8 @@ import { useI18n } from '../hooks/useI18n';
 export function ProductionPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
   const { t: tr, n, percent, decimal } = useI18n();
   const startConstruction = useAppStore((state) => state.startConstruction);
+  const cancelConstruction = useAppStore((state) => state.cancelConstruction);
+  const setConstructionPriority = useAppStore((state) => state.setConstructionPriority);
   const setAllocation = useAppStore((state) => state.setAllocation);
   const [regionId, setRegionId] = useState(snapshot.regions[0]?.id ?? '');
   const allocation = snapshot.country.allocation;
@@ -77,6 +79,25 @@ export function ProductionPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
                 <span className="muted">{order.regionName}</span>
                 <div className="meter meter--cyan">
                   <span style={{ width: `${Math.round(order.progress * 100)}%` }} />
+                </div>
+                <div className="army-card__targets">
+                  {(['low', 'normal', 'high'] as const).map((priority) => (
+                    <button
+                      key={priority}
+                      type="button"
+                      className={`btn btn--small ${order.priority === priority ? 'btn--primary' : ''}`}
+                      onClick={() => setConstructionPriority(order.id, priority)}
+                    >
+                      {tr(`construction.priority.${priority}`)}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn btn--small"
+                    onClick={() => cancelConstruction(order.id)}
+                  >
+                    {tr('construction.cancel')}
+                  </button>
                 </div>
               </li>
             ))}

@@ -8,6 +8,7 @@ import type {
   PlayerSnapshot,
 } from '../game/types';
 import { GEOGRAPHY, normalisedCentroid } from '../geo';
+import type { GameSpeed } from '../core/config';
 import { saveManager } from '../save/SaveManager';
 import type { SaveSlotId, SaveSummary } from '../save/types';
 import type { FormationType } from '../gameplay/tactical/types';
@@ -30,6 +31,10 @@ export type PanelTab =
   | 'military'
   | 'diplomacy'
   | 'logistics'
+  | 'society'
+  | 'trade'
+  | 'intel'
+  | 'policies'
   | 'territory'
   | 'war';
 export type DialogId = 'none' | 'save' | 'load' | 'settings' | 'pause' | 'leave';
@@ -85,7 +90,7 @@ interface AppState {
   battleFocus: BattleFocusRequest | null;
   armyFocus: ArmyFocusRequest | null;
   regionFocus: RegionFocusRequest | null;
-  pausedFromSpeed: 1 | 2 | 4;
+  pausedFromSpeed: 1 | 2 | 4 | 8;
 
   goToMenu: () => void;
   goToNationSelect: () => void;
@@ -109,7 +114,7 @@ interface AppState {
   returnToMenu: () => void;
   refreshSaves: () => Promise<void>;
   continueLatest: () => Promise<void>;
-  saveToSlot: (slot: SaveSlotId, silent?: boolean) => Promise<void>;
+  saveToSlot: (slot: SaveSlotId, silent?: boolean, name?: string) => Promise<void>;
   loadFromSlot: (slot: SaveSlotId) => Promise<void>;
   deleteSlot: (slot: SaveSlotId) => Promise<void>;
   importSaveText: (text: string) => Promise<void>;
@@ -117,7 +122,7 @@ interface AppState {
 
   tick: (deltaMs: number) => void;
   syncSnapshot: () => void;
-  setSpeed: (speed: 0 | 1 | 2 | 4) => void;
+  setSpeed: (speed: GameSpeed) => void;
   togglePause: () => void;
   startResearch: (techId: string) => void;
   queueUnit: (unitId: string) => void;
@@ -125,8 +130,18 @@ interface AppState {
   orderArmyMove: (armyId: string, targetId: string) => void;
   declareWar: (targetId: string) => void;
   makePeace: (targetId: string) => void;
-  startConstruction: (projectId: string, regionId: string) => void;
+  startConstruction: (projectId: string, regionId: string, priority?: 'low' | 'normal' | 'high') => void;
+  cancelConstruction: (orderId: string) => void;
+  setConstructionPriority: (orderId: string, priority: 'low' | 'normal' | 'high') => void;
   setAllocation: (allocation: { military: number; infrastructure: number; research: number }) => void;
+  setPolicy: (policyId: string, enabled: boolean) => void;
+  setMobilization: (level: number) => void;
+  openTradeAgreement: (partnerId: string) => void;
+  establishTradeRoute: (partnerId: string, resource: string, amount: number, contract?: boolean) => void;
+  cancelTradeRoute: (routeId: string) => void;
+  queueMissile: (type: 'tactical' | 'cruise' | 'ballistic') => void;
+  startNavalInvasion: (armyId: string, targetRegionId: string) => void;
+  startAirlift: (armyId: string, targetRegionId: string, kind?: 'redeploy' | 'supply') => void;
   improveRelations: (targetId: string) => void;
   formNonAggression: (targetId: string) => void;
   grantMilitaryAccess: (targetId: string) => void;
@@ -339,9 +354,10 @@ export const useAppStore = create<AppState>()((set, get) => ({
     await get().loadFromSlot(latest.slot);
   },
 
-  saveToSlot: async (slot, silent = false) => {
+  saveToSlot: async (slot, silent = false, name) => {
     const session = get().session;
     if (!session) return;
+    if (name !== undefined) session.saveName = name.trim() || null;
     try {
       await saveManager.save(slot, session.toSavePayload());
       await get().refreshSaves();
@@ -423,7 +439,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
         set({ snapshot: session.snapshot() });
       }
     }
-    if (session.consumeAutoSaveFlag()) {
+    if (session.consumeAutoSaveFlag() && useSettingsStore.getState().autosave) {
       void get().saveToSlot('auto', true);
     }
   },
@@ -524,10 +540,10 @@ export const useAppStore = create<AppState>()((set, get) => ({
     set({ snapshot: session.snapshot() });
   },
 
-  startConstruction: (projectId, regionId) => {
+  startConstruction: (projectId, regionId, priority = 'normal') => {
     const session = get().session;
     if (!session) return;
-    if (!session.startConstruction(projectId, regionId)) {
+    if (!session.startConstruction(projectId, regionId, priority)) {
       get().showToast(message('production.failed'), 'warning');
       return;
     }
@@ -535,10 +551,124 @@ export const useAppStore = create<AppState>()((set, get) => ({
     set({ snapshot: session.snapshot() });
   },
 
+  cancelConstruction: (orderId) => {
+    const session = get().session;
+    if (!session?.cancelConstruction(orderId)) {
+      get().showToast(message('production.failed'), 'warning');
+      return;
+    }
+    get().showToast(message('construction.cancelled'), 'info');
+    set({ snapshot: session.snapshot() });
+  },
+
+  setConstructionPriority: (orderId, priority) => {
+    const session = get().session;
+    if (!session?.setConstructionPriority(orderId, priority)) return;
+    get().showToast(message('construction.prioritised'), 'info');
+    set({ snapshot: session.snapshot() });
+  },
+
   setAllocation: (allocation) => {
     const session = get().session;
     if (!session) return;
     session.setAllocation(allocation);
+    set({ snapshot: session.snapshot() });
+  },
+
+  setPolicy: (policyId, enabled) => {
+    const session = get().session;
+    if (!session?.setPolicy(policyId, enabled)) {
+      get().showToast(message('policy.failed'), 'warning');
+      return;
+    }
+    get().showToast(message(enabled ? 'policy.enacted' : 'policy.repealed'), 'success');
+    set({ snapshot: session.snapshot() });
+  },
+
+  setMobilization: (level) => {
+    const session = get().session;
+    if (!session?.setMobilization(level)) return;
+    set({ snapshot: session.snapshot() });
+  },
+
+  openTradeAgreement: (partnerId) => {
+    const session = get().session;
+    if (!session?.openTrade(partnerId)) {
+      get().showToast(message('diplomacy.actionFailed'), 'warning');
+      return;
+    }
+    get().showToast(message('diplomacy.trade'), 'success');
+    set({ snapshot: session.snapshot() });
+  },
+
+  establishTradeRoute: (partnerId, resource, amount, contract = false) => {
+    const session = get().session;
+    if (!session) return;
+    const result = session.establishTradeRoute(partnerId, resource, amount, contract);
+    if (!result.ok) {
+      const key: Record<typeof result.reason, MessageKey> = {
+        'unknown-country': 'trade.unknown',
+        self: 'trade.failed',
+        'no-agreement': 'trade.noAgreement',
+        'at-war': 'trade.atWar',
+        embargoed: 'trade.embargoed',
+        sanctioned: 'trade.sanctioned',
+        'no-route': 'trade.noRoute',
+        'invalid-resource': 'trade.invalidResource',
+        'insufficient-stock': 'trade.insufficient',
+        'route-limit': 'trade.limit',
+      };
+      get().showToast(message(key[result.reason]), 'warning');
+      return;
+    }
+    get().showToast(message('trade.opened'), 'success');
+    set({ snapshot: session.snapshot() });
+  },
+
+  cancelTradeRoute: (routeId) => {
+    const session = get().session;
+    if (!session?.cancelTradeRoute(routeId)) return;
+    get().showToast(message('trade.cancelled'), 'info');
+    set({ snapshot: session.snapshot() });
+  },
+
+  queueMissile: (type) => {
+    const session = get().session;
+    if (!session) return;
+    const result = session.queueMissile(type);
+    if (!result.ok) {
+      const key: Record<typeof result.reason, MessageKey> = {
+        'unknown-type': 'missile.insufficient',
+        'queue-full': 'missile.queueFull',
+        'insufficient-resources': 'missile.insufficient',
+        'no-industry': 'missile.noIndustry',
+      };
+      get().showToast(message(key[result.reason]), 'warning');
+      return;
+    }
+    get().showToast(message('missile.queued'), 'success');
+    set({ snapshot: session.snapshot() });
+  },
+
+  startNavalInvasion: (armyId, targetRegionId) => {
+    const session = get().session;
+    if (!session) return;
+    const result = session.startNavalInvasion(armyId, targetRegionId);
+    get().showToast(
+      message(result.ok ? 'maneuver.started' : 'maneuver.failed'),
+      result.ok ? 'success' : 'warning',
+    );
+    set({ snapshot: session.snapshot() });
+  },
+
+  startAirlift: (armyId, targetRegionId, kind = 'redeploy') => {
+    const session = get().session;
+    if (!session) return;
+    const result = session.startAirlift(armyId, targetRegionId, kind);
+    get().showToast(
+      message(result.ok ? 'maneuver.started' : 'maneuver.failed'),
+      result.ok ? 'success' : 'warning',
+    );
     set({ snapshot: session.snapshot() });
   },
 

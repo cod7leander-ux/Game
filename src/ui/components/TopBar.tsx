@@ -5,11 +5,15 @@ import type { MessageKey } from '../../i18n/locales/en';
 import { useI18n } from '../hooks/useI18n';
 import { Flag } from './Flag';
 
-const SPEED_KEY: Record<GameSpeed, 'hud.speed.pause' | 'hud.speed.normal' | 'hud.speed.fast' | 'hud.speed.rapid'> = {
+const SPEED_KEY: Record<
+  GameSpeed,
+  'hud.speed.pause' | 'hud.speed.normal' | 'hud.speed.fast' | 'hud.speed.rapid' | 'hud.speed.blitz'
+> = {
   0: 'hud.speed.pause',
   1: 'hud.speed.normal',
   2: 'hud.speed.fast',
   4: 'hud.speed.rapid',
+  8: 'hud.speed.blitz',
 };
 
 interface TopBarProps {
@@ -79,7 +83,15 @@ export function TopBar({ snapshot }: TopBarProps) {
               onClick={() => setSpeed(speed)}
               title={tr(SPEED_KEY[speed])}
             >
-              {speed === 0 ? '❚❚' : speed === 1 ? '▶' : speed === 2 ? '▶▶' : '▶▶▶'}
+              {speed === 0
+                ? '❚❚'
+                : speed === 1
+                  ? '▶'
+                  : speed === 2
+                    ? '▶▶'
+                    : speed === 4
+                      ? '▶▶▶'
+                      : '▶▶▶▶'}
             </button>
           ))}
         </div>

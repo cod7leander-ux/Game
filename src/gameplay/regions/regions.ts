@@ -41,6 +41,25 @@ export const buildRegionStates = (
     industryBonus: 0,
     output: {},
     supplyLevel: definition.isCapital ? 0.9 : definition.hasPort || definition.infrastructure > 0.6 ? 0.7 : 0.5,
+    workingPopulation: Math.round(population * definition.populationShare * 0.52),
+    militaryAgePopulation: Math.round(population * definition.populationShare * 0.23),
+    populationCapacity: Math.max(1, Math.round(population * definition.populationShare * 1.55)),
+    civilianIndustry: clamp01(0.18 + definition.industryShare * 1.45 + definition.infrastructure * 0.12),
+    militaryIndustry: clamp01(0.08 + definition.industryShare * 1.15 + definition.infrastructure * 0.08),
+    constructionCapacity: clamp(0.42 + definition.infrastructure * 0.72, 0.3, 1.2),
+    airportCapacity: definition.hasAirport ? 0.58 : 0,
+    portCapacity: definition.hasPort ? 0.62 : 0,
+    extractionCapacity: clamp01(
+      Object.values(definition.richness).reduce((total, value) => total + (value ?? 0), 0) / 2.2,
+    ),
+    development: clamp01(
+      definition.infrastructure * 0.48 +
+        definition.industryShare * 0.7 +
+        definition.populationShare * 0.35 +
+        (definition.isCapital ? 0.12 : 0),
+    ),
+    radar: definition.isCapital ? 0.12 : 0,
+    fortification: definition.isCapital ? 0.12 : 0.04,
   }));
 
 export const regionDefinition = (regionId: string): RegionDefinition | undefined =>
@@ -200,6 +219,8 @@ export const applyOccupation = (
     region.occupationProgress = occupierId ? 1 : 0;
     region.resistance = occupierId ? Math.max(region.resistance, 0.35) : 0;
     region.supplyModifier = occupierId ? 0.72 : 1;
+    region.civilianIndustry = clamp01(region.civilianIndustry * (occupierId ? 0.65 : 1));
+    region.militaryIndustry = clamp01(region.militaryIndustry * (occupierId ? 0.55 : 1));
   }
 };
 

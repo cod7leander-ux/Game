@@ -32,6 +32,22 @@ export interface ProjectEffects {
   stability?: number;
   /** Flat daily resource output added to the region. */
   resource?: Partial<Record<ResourceId, number>>;
+  /** Additive civilian industrial base (0..1). */
+  civilianIndustry?: number;
+  /** Additive military industrial base (0..1). */
+  militaryIndustry?: number;
+  /** Additive construction capacity (0..1). */
+  constructionCapacity?: number;
+  /** Additive airport capacity (0..1). */
+  airportCapacity?: number;
+  /** Additive port capacity (0..1). */
+  portCapacity?: number;
+  /** Additive radar coverage (0..1). */
+  radar?: number;
+  /** Additive fortification level (0..1). */
+  fortification?: number;
+  /** Relative increase to the region's population capacity. */
+  populationCapacity?: number;
 }
 
 export interface InfrastructureProject {
@@ -48,10 +64,14 @@ export interface InfrastructureProject {
   requiresInfrastructure?: number;
 }
 
+export type ConstructionPriority = 'low' | 'normal' | 'high';
+
 export interface ConstructionOrder {
   id: string;
   projectId: string;
   regionId: string;
+  category: ProductionCategory;
+  priority: ConstructionPriority;
   daysRemaining: number;
   totalDays: number;
   startedDay: number;

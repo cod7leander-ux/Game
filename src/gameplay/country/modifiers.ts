@@ -1,4 +1,5 @@
 import { TECHNOLOGIES } from '../../data/research';
+import { getPolicy } from '../../data/policies';
 import { UNITS } from '../../data/units';
 import type { CountryState } from './types';
 
@@ -17,6 +18,12 @@ export const recomputeModifiers = (country: CountryState): void => {
     supply: 0,
     detection: 0,
     resource: 0,
+    manpower: 0,
+    logistics: 0,
+    trade: 0,
+    stability: 0,
+    military: 0,
+    civilian: 0,
   };
   const completed = new Set(country.research.completed);
 
@@ -51,6 +58,15 @@ export const recomputeModifiers = (country: CountryState): void => {
         default:
           break;
       }
+    }
+  }
+
+  for (const policyId of country.policy?.active ?? []) {
+    const policy = getPolicy(policyId);
+    if (!policy) continue;
+    for (const [key, value] of Object.entries(policy.effects)) {
+      if (typeof value !== 'number' || !(key in modifiers)) continue;
+      modifiers[key as keyof typeof modifiers] += value;
     }
   }
 

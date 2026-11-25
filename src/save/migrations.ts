@@ -3,6 +3,14 @@ import { GEOGRAPHY } from '../geo';
 import { createEmptyResources, DEFAULT_ALLOCATION } from '../gameplay/economy/types';
 import { createRelation } from '../gameplay/diplomacy/types';
 import { createWarfareState } from '../gameplay/war/types';
+import { createSocietyState } from '../gameplay/society/types';
+import { createTradeState, createMarketState } from '../gameplay/trade/types';
+import { createIntelligenceState } from '../gameplay/intelligence/types';
+import { createPolicyState } from '../gameplay/policy/types';
+import { createLogisticsState } from '../gameplay/logistics/types';
+import { createManeuverState } from '../gameplay/maneuver/types';
+import { createSituationState } from '../gameplay/situation/WorldEventSystem';
+import { regionAt } from '../data/regions';
 import { CURRENT_SAVE_VERSION, type SaveFile } from './types';
 
 /**
@@ -303,7 +311,124 @@ export const MIGRATIONS: Record<number, Migration> = {
       },
     };
   },
+
+  /**
+   * v7 adds the persistent sandbox layer: regional population and industry,
+   * construction priorities, trade routes and dynamic prices, logistics
+   * networks, naval invasions and airlift, intelligence, national policies and
+   * emergent world situations. Old campaigns receive neutral, internally
+   * consistent defaults; no army, region or war state is dropped.
+   */
+  6: (file) => {
+    const world = (file.world ?? {}) as {
+      countries?: LegacyCountry[];
+      market?: unknown;
+      tradeRoutes?: unknown;
+      situations?: unknown;
+    };
+    const countries = (world.countries ?? []).map((raw) => {
+      const country = raw as Record<string, unknown>;
+      const population = Number(country.population ?? 0);
+      const economy = (country.economy ?? {}) as Record<string, unknown>;
+      const availableManpower = Number(economy.availableManpower ?? (population * 0.004) / 1000);
+      const regions = (Array.isArray(country.regions) ? country.regions : []).map((entry) => {
+        const region = entry as Record<string, unknown>;
+        const id = String(region.id ?? '');
+        const definition = regionAt(id);
+        const regionPopulation = Number(region.population ?? 0);
+        const infrastructure = Number(region.infrastructure ?? 0.4);
+        const populationShare = definition?.populationShare ?? 1 / Math.max(1, regionsLength(country));
+        const industryShare = definition?.industryShare ?? 0.2;
+        return {
+          ...region,
+          workingPopulation: Number(region.workingPopulation ?? regionPopulation * 0.52),
+          militaryAgePopulation: Number(region.militaryAgePopulation ?? regionPopulation * 0.23),
+          populationCapacity: Number(region.populationCapacity ?? regionPopulation * 1.55),
+          civilianIndustry: Number(
+            region.civilianIndustry ?? Math.min(1, 0.18 + industryShare * 1.45 + infrastructure * 0.12),
+          ),
+          militaryIndustry: Number(
+            region.militaryIndustry ?? Math.min(1, 0.08 + industryShare * 1.15 + infrastructure * 0.08),
+          ),
+          constructionCapacity: Number(region.constructionCapacity ?? 0.42 + infrastructure * 0.72),
+          airportCapacity: Number(region.airportCapacity ?? (definition?.hasAirport ? 0.58 : 0)),
+          portCapacity: Number(region.portCapacity ?? (definition?.hasPort ? 0.62 : 0)),
+          extractionCapacity: Number(
+            region.extractionCapacity ?? Math.min(1, (definition ? Object.values(definition.richness).reduce((sum, value) => sum + (value ?? 0), 0) : 0) / 2.2),
+          ),
+          development: Number(
+            region.development ??
+              Math.min(1, infrastructure * 0.48 + industryShare * 0.7 + populationShare * 0.35),
+          ),
+          radar: Number(region.radar ?? (definition?.isCapital ? 0.12 : 0)),
+          fortification: Number(region.fortification ?? (definition?.isCapital ? 0.12 : 0.04)),
+        };
+      });
+      const production = (country.production ?? {}) as Record<string, unknown>;
+      const construction = (Array.isArray(production.construction) ? production.construction : []).map(
+        (entry) => {
+          const order = entry as Record<string, unknown>;
+          return {
+            ...order,
+            category: order.category ?? 'infrastructure',
+            priority: order.priority ?? 'normal',
+          };
+        },
+      );
+      const warfare = (country.warfare ?? createWarfareState()) as Record<string, unknown> & {
+        missiles?: Record<string, unknown>;
+      };
+      const missiles = (warfare.missiles ?? {}) as Record<string, unknown>;
+      const modifiers = (country.modifiers ?? {}) as Record<string, unknown>;
+      return {
+        ...country,
+        regions,
+        society: country.society ?? createSocietyState(population, availableManpower),
+        trade: country.trade ?? createTradeState(),
+        intelligence: country.intelligence ?? createIntelligenceState(),
+        policy: country.policy ?? createPolicyState(),
+        logisticsState: country.logisticsState ?? createLogisticsState(),
+        maneuver: country.maneuver ?? createManeuverState(),
+        production: { ...production, construction },
+        warfare: {
+          ...warfare,
+          missiles: { ...missiles, production: Array.isArray(missiles.production) ? missiles.production : [] },
+        },
+        modifiers: {
+          production: 0,
+          income: 0,
+          research: 0,
+          attack: 0,
+          defence: 0,
+          supply: 0,
+          detection: 0,
+          resource: 0,
+          manpower: 0,
+          logistics: 0,
+          trade: 0,
+          stability: 0,
+          military: 0,
+          civilian: 0,
+          ...modifiers,
+        },
+      };
+    });
+    return {
+      ...file,
+      version: 7,
+      world: {
+        ...world,
+        countries,
+        market: world.market ?? createMarketState(),
+        tradeRoutes: world.tradeRoutes ?? {},
+        situations: world.situations ?? createSituationState(),
+      },
+    };
+  },
 };
+
+const regionsLength = (country: Record<string, unknown>): number =>
+  Array.isArray(country.regions) ? country.regions.length : 1;
 
 type StopgapRelation = Record<string, unknown> & {
   value?: number;

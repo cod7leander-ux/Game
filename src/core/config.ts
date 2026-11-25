@@ -3,15 +3,15 @@
 export const GAME = {
   /** Title and branding. */
   title: 'Terra Dominion',
-  version: '0.6.0',
+  version: '0.7.0',
   /** Bumped whenever the save payload shape changes. Migrations live in src/save/migrations.ts. */
-  saveVersion: 6,
+  saveVersion: 7,
   /** World radius in scene units. All globe math is expressed as a fraction of this. */
   globeRadius: 10,
   /** Real milliseconds that make one in-game day at 1x speed. */
   msPerDay: 1600,
   /** Upper bound of days simulated in a single frame (protects slow devices). */
-  maxDaysPerFrame: 8,
+  maxDaysPerFrame: 16,
   /** Starting in-game date. */
   startDate: { year: 2031, month: 1, day: 1 },
   /**
@@ -27,9 +27,9 @@ export const GAME = {
   notificationLimit: 60,
 } as const;
 
-export type GameSpeed = 0 | 1 | 2 | 4;
+export type GameSpeed = 0 | 1 | 2 | 4 | 8;
 
-export const SPEEDS: readonly GameSpeed[] = [0, 1, 2, 4];
+export const SPEEDS: readonly GameSpeed[] = [0, 1, 2, 4, 8];
 
 /** Camera altitude range, expressed as a multiplier of the globe radius above the surface. */
 export const CAMERA = {

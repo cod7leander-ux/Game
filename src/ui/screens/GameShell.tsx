@@ -17,6 +17,7 @@ export function GameShell() {
   const panelOpen = useAppStore((state) => state.panelOpen);
   const togglePanel = useAppStore((state) => state.togglePanel);
   const panelSide = useSettingsStore((state) => state.panelSide);
+  const showNotifications = useSettingsStore((state) => state.notifications);
   const selectedCountryId = useAppStore((state) => state.selectedCountryId);
   const brief = useAppStore((state) => state.inspectedBrief);
   const openDialog = useAppStore((state) => state.openDialog);
@@ -128,7 +129,7 @@ export function GameShell() {
       </div>
 
       <BattleHud snapshot={snapshot} />
-      <NotificationsDrawer />
+      {showNotifications && <NotificationsDrawer />}
     </div>
   );
 }

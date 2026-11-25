@@ -8,6 +8,12 @@ import { createArmy } from '../military/armies';
 import { createEmptyResources, DEFAULT_ALLOCATION } from '../economy/types';
 import { buildRegionStates } from '../regions/regions';
 import { createWarfareState } from '../war/types';
+import { createSocietyState } from '../society/types';
+import { createTradeState } from '../trade/types';
+import { createIntelligenceState } from '../intelligence/types';
+import { createPolicyState } from '../policy/types';
+import { createLogisticsState } from '../logistics/types';
+import { createManeuverState } from '../maneuver/types';
 import type { CountryDefinition, CountryState } from './types';
 
 /**
@@ -163,6 +169,12 @@ export const createCountryState = (
     objectives: [],
     production: { construction: [], completedProjects: 0 },
     warfare: createWarfareState(),
+    society: createSocietyState(Math.round(population), manpowerPool(population)),
+    trade: createTradeState(),
+    intelligence: createIntelligenceState(),
+    policy: createPolicyState(),
+    logisticsState: createLogisticsState(),
+    maneuver: createManeuverState(),
     occupierId: null,
     modifiers: {
       production: 0,
@@ -173,6 +185,12 @@ export const createCountryState = (
       supply: 0,
       detection: 0,
       resource: 0,
+      manpower: 0,
+      logistics: 0,
+      trade: 0,
+      stability: 0,
+      military: 0,
+      civilian: 0,
     },
     lastAttackedDay: 0,
   };

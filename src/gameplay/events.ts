@@ -18,6 +18,99 @@ export type SimEvent =
   | { type: 'embargoImposed'; aId: string; bId: string; day: number }
   | { type: 'constructionStart'; countryId: string; projectId: string; regionId: string; day: number }
   | { type: 'constructionComplete'; countryId: string; projectId: string; regionId: string; day: number }
+  | { type: 'constructionCancelled'; countryId: string; projectId: string; regionId: string; day: number }
+  | { type: 'manpowerLoss'; countryId: string; amount: number; day: number }
+  | {
+      type: 'policyChanged';
+      countryId: string;
+      policyId: string;
+      enabled: boolean;
+      day: number;
+    }
+  | { type: 'mobilizationChanged'; countryId: string; level: number; day: number }
+  | {
+      type: 'tradeRouteOpened';
+      countryId: string;
+      partnerId: string;
+      routeId: string;
+      day: number;
+    }
+  | { type: 'tradeRouteClosed'; countryId: string; routeId: string; day: number }
+  | {
+      type: 'tradeDisrupted';
+      countryId: string;
+      routeId: string;
+      severity: 'partial' | 'severe';
+      day: number;
+    }
+  | {
+      type: 'navalInvasionStarted';
+      countryId: string;
+      invasionId: string;
+      targetRegionId: string;
+      day: number;
+    }
+  | {
+      type: 'navalInvasionLanded';
+      countryId: string;
+      invasionId: string;
+      regionId: string;
+      captured: boolean;
+      day: number;
+    }
+  | {
+      type: 'navalInvasionFailed';
+      countryId: string;
+      invasionId: string;
+      targetRegionId: string;
+      reason: 'cancelled' | 'repulsed';
+      day: number;
+    }
+  | {
+      type: 'airliftStarted';
+      countryId: string;
+      airliftId: string;
+      targetRegionId: string;
+      kind: 'redeploy' | 'supply';
+      day: number;
+    }
+  | {
+      type: 'airliftCompleted';
+      countryId: string;
+      airliftId: string;
+      targetRegionId: string;
+      kind: 'redeploy' | 'supply';
+      day: number;
+    }
+  | {
+      type: 'airliftFailed';
+      countryId: string;
+      airliftId: string;
+      targetRegionId: string;
+      day: number;
+    }
+  | {
+      type: 'situationStarted';
+      situationId: string;
+      definitionId: string;
+      countryId: string;
+      severity: 'minor' | 'moderate' | 'major';
+      day: number;
+    }
+  | {
+      type: 'situationEnded';
+      situationId: string;
+      definitionId: string;
+      countryId: string;
+      day: number;
+    }
+  | {
+      type: 'missileProductionStarted';
+      countryId: string;
+      missileType: string;
+      day: number;
+    }
+  | { type: 'missileProduced'; countryId: string; missileType: string; day: number }
   | { type: 'objectiveCompleted'; countryId: string; objectiveId: string; kind: string; day: number }
   | {
       type: 'armyMarch';

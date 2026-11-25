@@ -12,6 +12,7 @@ const entries = [
   { entry: 'scripts/strategic-smoke.ts', name: 'strategic-smoke' },
   { entry: 'scripts/geography-smoke.ts', name: 'geography-smoke' },
   { entry: 'scripts/warfare-smoke.ts', name: 'warfare-smoke' },
+  { entry: 'scripts/sandbox-smoke.ts', name: 'sandbox-smoke' },
 ];
 
 const only = process.argv[2];

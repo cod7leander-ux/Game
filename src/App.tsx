@@ -33,6 +33,7 @@ export function App() {
   const armyFocus = useAppStore((state) => state.armyFocus);
   const selectUnit = useAppStore((state) => state.selectUnit);
   const locale = useSettingsStore((state) => state.locale);
+  const uiScale = useSettingsStore((state) => state.uiScale);
   const languageChosen = useSettingsStore((state) => state.languageChosen);
   const { t: tr } = useI18n();
 
@@ -41,7 +42,8 @@ export function App() {
     document.documentElement.lang = locale;
     document.documentElement.dir = definition.dir;
     document.title = `${tr('app.name')} · ${tr('app.tagline')}`;
-  }, [locale, tr]);
+    document.documentElement.style.setProperty('--ui-scale', String(uiScale));
+  }, [locale, tr, uiScale]);
 
   const units = battleUnits && battleUnits.length > 0 ? battleUnits : (mapUnits ?? []);
 

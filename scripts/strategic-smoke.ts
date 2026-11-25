@@ -230,7 +230,7 @@ for (const country of legacyWorld.countries) {
   }
 }
 const migrated = migrateSave(legacy);
-assert(migrated.version === 6, 'v3 migrates through v4, v5 to v6');
+assert(migrated.version === 7, 'v3 migrates through v4, v5, v6 to v7');
 assert(migrated.world.countries.every((country) => country.regions.length > 0), 'migration regenerates provinces');
 assert(migrated.world.countries.every((country) => country.economy.allocation), 'migration adds allocation');
 assert(
@@ -242,7 +242,7 @@ assert(
   Object.values(migrated.world.countries[0].diplomacy.relations).every((relation) => relationIsConsistent(relation)),
   'migrated relations are consistent',
 );
-log('v3 → v4 → v5 → v6 migration rebuilds provinces, economy and supply');
+log('v3 → v4 → v5 → v6 → v7 migration rebuilds provinces, economy and supply');
 
 // The full chain from the original schema.
 const ancient = JSON.parse(JSON.stringify(saveFile)) as Record<string, unknown>;
@@ -260,15 +260,15 @@ for (const country of ancientWorld.countries) {
   delete country.production;
 }
 const chained = migrateSave(ancient);
-assert(chained.version === 6, 'v1 migrates through v2, v3, v4, v5 to v6');
-assert(chained.world.countries.every((country) => country.military.armies.length > 0), 'v1 → v6 keeps an army per country');
-assert(chained.world.countries.every((country) => country.regions.length > 0), 'v1 → v6 creates provinces');
+assert(chained.version === 7, 'v1 migrates through v2, v3, v4, v5, v6 to v7');
+assert(chained.world.countries.every((country) => country.military.armies.length > 0), 'v1 → v7 keeps an army per country');
+assert(chained.world.countries.every((country) => country.regions.length > 0), 'v1 → v7 creates provinces');
 assert(
   chained.world.countries.every((country) => country.warfare && country.warfare.air && country.warfare.naval),
-  'v1 → v6 adds warfare state',
+  'v1 → v7 adds warfare state',
 );
-assert(Array.isArray(chained.world.wars), 'v1 → v6 adds the war registry');
-log('v1 → v2 → v3 → v4 → v5 → v6 chain preserved');
+assert(Array.isArray(chained.world.wars), 'v1 → v7 adds the war registry');
+log('v1 → v2 → v3 → v4 → v5 → v6 → v7 chain preserved');
 
 // ── Long campaign regression ────────────────────────────────────────────────
 const campaign = GameSession.create({ countryId: 'KWT', locale: 'en', difficulty: 'standard' });

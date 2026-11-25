@@ -8,6 +8,12 @@ import type { RegionState } from '../regions/types';
 import type { StrategicObjective } from '../objectives/types';
 import type { ProductionState } from '../production/types';
 import type { CountryWarfareState } from '../war/types';
+import type { SocietyState } from '../society/types';
+import type { CountryTradeState } from '../trade/types';
+import type { IntelligenceState } from '../intelligence/types';
+import type { PolicyState } from '../policy/types';
+import type { CountryLogisticsState } from '../logistics/types';
+import type { ManeuverState } from '../maneuver/types';
 
 export interface GeoBounds {
   minLon: number;
@@ -74,6 +80,18 @@ export interface CountryState {
   production: ProductionState;
   /** Wars, fronts, army groups, operations, air, naval, missile and AI plan state. */
   warfare: CountryWarfareState;
+  /** Population, workforce and manpower pool. */
+  society: SocietyState;
+  /** Trade routes, imports, exports and market exposure. */
+  trade: CountryTradeState;
+  /** Reconnaissance, radar and foreign contacts. */
+  intelligence: IntelligenceState;
+  /** Enacted national policies and mobilisation level. */
+  policy: PolicyState;
+  /** Convoy capacity, network throughput and bottlenecks. */
+  logisticsState: CountryLogisticsState;
+  /** Naval invasions, airlifts and strategic redeployments. */
+  maneuver: ManeuverState;
   /** Country currently occupying this territory, if any. */
   occupierId: string | null;
   /** Runtime accumulators. */
@@ -87,6 +105,18 @@ export interface CountryState {
     detection: number;
     /** Resource output efficiency bonus. */
     resource: number;
+    /** Manpower recovery and mobilisation efficiency. */
+    manpower: number;
+    /** Convoy and supply-network efficiency. */
+    logistics: number;
+    /** Trade route throughput and pricing efficiency. */
+    trade: number;
+    /** Daily stability drift from national policy. */
+    stability: number;
+    /** Military industrial output multiplier. */
+    military: number;
+    /** Civilian industrial output multiplier. */
+    civilian: number;
   };
   lastAttackedDay: number;
 }
@@ -109,7 +139,12 @@ export interface NotificationEntry {
     | 'alliance'
     | 'economy'
     | 'system'
-    | 'intel';
+    | 'intel'
+    | 'construction'
+    | 'trade'
+    | 'situation'
+    | 'policy'
+    | 'logistics';
   /** Localized at creation time so history keeps the language it was issued in. */
   message: string;
   countryId?: string;

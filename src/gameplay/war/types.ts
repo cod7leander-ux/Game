@@ -216,10 +216,19 @@ export interface NavalState {
 
 export type MissileType = 'tactical' | 'cruise' | 'ballistic';
 
+export interface MissileProductionOrder {
+  type: MissileType;
+  daysRemaining: number;
+  totalDays: number;
+  startedDay: number;
+}
+
 export interface MissileState {
   /** 0..1 launcher and guidance readiness. */
   readiness: number;
   stockpile: Partial<Record<MissileType, number>>;
+  /** Missiles under construction, bounded by industry and resources. */
+  production: MissileProductionOrder[];
   cooldownUntilDay: number;
   lastStrikeDay: number;
   lastTargetRegionId: string | null;
@@ -305,6 +314,7 @@ export const createNavalState = (): NavalState => ({
 export const createMissileState = (): MissileState => ({
   readiness: 0.5,
   stockpile: { tactical: 4, cruise: 2, ballistic: 1 },
+  production: [],
   cooldownUntilDay: 0,
   lastStrikeDay: 0,
   lastTargetRegionId: null,

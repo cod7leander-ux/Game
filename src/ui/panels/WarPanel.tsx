@@ -1,5 +1,6 @@
 import type { MessageKey } from '../../i18n/locales/en';
 import type { PlayerSnapshot } from '../../game/types';
+import { useMemo, useState } from 'react';
 import { useAppStore } from '../../state/appStore';
 import { useI18n } from '../hooks/useI18n';
 
@@ -18,6 +19,9 @@ export function WarPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
   const launchAirMission = useAppStore((state) => state.launchAirMission);
   const orderBlockade = useAppStore((state) => state.orderBlockade);
   const launchMissile = useAppStore((state) => state.launchMissile);
+  const queueMissile = useAppStore((state) => state.queueMissile);
+  const startNavalInvasion = useAppStore((state) => state.startNavalInvasion);
+  const startAirlift = useAppStore((state) => state.startAirlift);
   const offerWhitePeace = useAppStore((state) => state.offerWhitePeace);
   const acceptPeace = useAppStore((state) => state.acceptPeace);
   const rejectPeace = useAppStore((state) => state.rejectPeace);
@@ -25,7 +29,12 @@ export function WarPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
   const selectedRegionId = useAppStore((state) => state.selectedRegionId);
   const primaryFront = warfare.frontlines[0];
   const targetRegionId = selectedRegionId ?? primaryFront?.objectiveRegionId ?? null;
-  const idleArmies = snapshot.armies.filter((army) => !army.movement);
+  const idleArmies = useMemo(
+    () => snapshot.armies.filter((army) => !army.movement),
+    [snapshot.armies],
+  );
+  const [maneuverArmyId, setManeuverArmyId] = useState(idleArmies[0]?.id ?? '');
+  const maneuverArmy = idleArmies.find((army) => army.id === maneuverArmyId) ?? idleArmies[0];
 
   return (
     <div className="panel-content">
@@ -288,6 +297,81 @@ export function WarPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
 
       <section className="sub-section">
         <header className="sub-section__header">
+          <h3>{tr('maneuver.title')}</h3>
+          <span className="count">
+            {n(snapshot.maneuver.invasions.length + snapshot.maneuver.airlifts.length)}
+          </span>
+        </header>
+        <div className="war-card__stats">
+          <span>{tr('maneuver.transport')} {n(Math.round(snapshot.maneuver.transportCapacity))}</span>
+          <span>{tr('war.air')} {n(Math.round(snapshot.maneuver.airliftCapacity))}</span>
+        </div>
+        {snapshot.maneuver.invasions.length === 0 && snapshot.maneuver.airlifts.length === 0 ? (
+          <p className="muted">{tr('maneuver.none')}</p>
+        ) : (
+          <ul className="stack-list">
+            {snapshot.maneuver.invasions.map((entry) => (
+              <li key={entry.id}>
+                <div className="stack-list__row">
+                  <strong>{entry.armyName} → {entry.targetName}</strong>
+                  <span>{tr(`maneuver.${entry.phase}` as MessageKey)}</span>
+                </div>
+                <div className="meter meter--amber">
+                  <span style={{ width: `${Math.round(entry.progress * 100)}%` }} />
+                </div>
+                <span className="muted">{tr('production.days', { days: n(entry.daysRemaining) })}</span>
+              </li>
+            ))}
+            {snapshot.maneuver.airlifts.map((entry) => (
+              <li key={entry.id}>
+                <div className="stack-list__row">
+                  <strong>{entry.armyName} → {entry.targetName}</strong>
+                  <span>{tr('maneuver.airlift')}</span>
+                </div>
+                <div className="meter meter--cyan">
+                  <span style={{ width: `${Math.round(entry.progress * 100)}%` }} />
+                </div>
+                <span className="muted">{tr('production.days', { days: n(entry.daysRemaining) })}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="settings-row">
+          <span>{tr('maneuver.army')}</span>
+          <select
+            className="select"
+            value={maneuverArmy?.id ?? ''}
+            onChange={(event) => setManeuverArmyId(event.target.value)}
+          >
+            {idleArmies.map((army) => (
+              <option key={army.id} value={army.id}>
+                {army.commander || army.id}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="army-card__targets">
+          <button
+            type="button"
+            className="btn btn--small"
+            disabled={!maneuverArmy || !targetRegionId}
+            onClick={() => maneuverArmy && targetRegionId && startNavalInvasion(maneuverArmy.id, targetRegionId)}
+          >
+            {tr('maneuver.invade')}
+          </button>
+          <button
+            type="button"
+            className="btn btn--small"
+            disabled={!maneuverArmy || !targetRegionId}
+            onClick={() => maneuverArmy && targetRegionId && startAirlift(maneuverArmy.id, targetRegionId, 'redeploy')}
+          >
+            {tr('maneuver.airlift')}
+          </button>
+        </div>
+      </section>
+
+      <section className="sub-section">
+        <header className="sub-section__header">
           <h3>{tr('war.missiles')}</h3>
           <span className="count">{n(warfare.missiles.stockpile.reduce((sum, entry) => sum + entry.count, 0))}</span>
         </header>
@@ -311,6 +395,32 @@ export function WarPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
             <span className="muted">{tr('war.lastTarget')}: {warfare.missiles.lastTargetName}</span>
           )}
         </div>
+        <div className="sub-section__header">
+          <h4>{tr('missile.production')}</h4>
+        </div>
+        <div className="army-card__targets">
+          {(['tactical', 'cruise', 'ballistic'] as const).map((type) => (
+            <button
+              key={type}
+              type="button"
+              className="btn btn--small"
+              onClick={() => queueMissile(type)}
+            >
+              {tr('missile.queue')} · {type}
+            </button>
+          ))}
+        </div>
+        {warfare.missiles.production.map((order, index) => (
+          <div key={`${order.type}-${index}`} className="meter-row">
+            <span>{order.type}</span>
+            <div className="meter meter--amber">
+              <span
+                style={{ width: `${Math.round((1 - order.daysRemaining / Math.max(1, order.totalDays)) * 100)}%` }}
+              />
+            </div>
+            <em>{tr('missile.buildTime', { days: n(order.daysRemaining) })}</em>
+          </div>
+        ))}
       </section>
 
       {warfare.peaceOffers.length > 0 && (

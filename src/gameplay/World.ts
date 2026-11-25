@@ -11,6 +11,8 @@ import { createCountryState } from './country/factory';
 import { recomputeModifiers } from './country/modifiers';
 import type { CountryDefinition, CountryState } from './country/types';
 import type { Blockade, Frontline, PeaceOffer, War } from './war/types';
+import { createMarketState, createTradeState, type MarketState, type TradeRoute } from './trade/types';
+import { createSituationState, type WorldSituationState } from './situation/types';
 
 /**
  * Runtime container for every country in a campaign.
@@ -33,6 +35,9 @@ export interface WorldWarfareState {
   frontlines?: Frontline[];
   blockades?: Blockade[];
   peaceOffers?: PeaceOffer[];
+  market?: MarketState;
+  tradeRoutes?: Record<string, TradeRoute>;
+  situations?: WorldSituationState;
 }
 
 export class World {
@@ -46,6 +51,12 @@ export class World {
   readonly frontlines: Record<string, Frontline> = {};
   readonly blockades: Blockade[] = [];
   readonly peaceOffers: PeaceOffer[] = [];
+  /** Dynamic resource prices and aggregate supply/demand. */
+  market: MarketState = createMarketState();
+  /** International trade routes keyed by id; shared by both endpoints. */
+  readonly tradeRoutes: Record<string, TradeRoute> = {};
+  /** Emergent world situations and their bounded history. */
+  situations: WorldSituationState = createSituationState();
   private adjacency = new Map<string, string[]>();
 
   constructor(
@@ -61,6 +72,11 @@ export class World {
       for (const front of restoredWarfare.frontlines ?? []) this.frontlines[front.id] = front;
       this.blockades.push(...(restoredWarfare.blockades ?? []));
       this.peaceOffers.push(...(restoredWarfare.peaceOffers ?? []));
+      if (restoredWarfare.market) this.market = restoredWarfare.market;
+      for (const route of Object.values(restoredWarfare.tradeRoutes ?? {})) {
+        this.tradeRoutes[route.id] = route;
+      }
+      if (restoredWarfare.situations) this.situations = restoredWarfare.situations;
     }
     if (restored && restored.length > 0) {
       for (const state of restored) this.countries.set(state.id, state);
@@ -71,6 +87,8 @@ export class World {
   }
 
   private populate(): void {
+    this.market = createMarketState();
+    this.situations = createSituationState();
     const definitionByIso = COUNTRY_BY_ID;
     for (const definition of COUNTRY_DEFINITIONS) {
       if (!definitionByIso[definition.id]) continue;
@@ -79,6 +97,7 @@ export class World {
         seed: this.seed,
         isPlayer: definition.id === this.playerCountryId,
       });
+      state.trade = createTradeState();
       recomputeModifiers(state);
       this.countries.set(definition.id, state);
     }

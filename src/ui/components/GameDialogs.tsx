@@ -60,6 +60,16 @@ function SettingsContent() {
   const setCityMarkers = useSettingsStore((state) => state.setCityMarkers);
   const panelSide = useSettingsStore((state) => state.panelSide);
   const setPanelSide = useSettingsStore((state) => state.setPanelSide);
+  const volume = useSettingsStore((state) => state.volume);
+  const setVolume = useSettingsStore((state) => state.setVolume);
+  const uiScale = useSettingsStore((state) => state.uiScale);
+  const setUiScale = useSettingsStore((state) => state.setUiScale);
+  const notifications = useSettingsStore((state) => state.notifications);
+  const setNotifications = useSettingsStore((state) => state.setNotifications);
+  const autosave = useSettingsStore((state) => state.autosave);
+  const setAutosave = useSettingsStore((state) => state.setAutosave);
+  const defaultDifficulty = useSettingsStore((state) => state.defaultDifficulty);
+  const setDefaultDifficulty = useSettingsStore((state) => state.setDefaultDifficulty);
   const reset = useSettingsStore((state) => state.reset);
   const session = useAppStore((state) => state.session);
   const syncSnapshot = useAppStore((state) => state.syncSnapshot);
@@ -145,7 +155,72 @@ function SettingsContent() {
       </section>
 
       <section>
+        <h3>{tr('settings.gameplay')}</h3>
+        <div className="settings-row">
+          <span>{tr('settings.difficulty')}</span>
+          <div className="segmented">
+            {(['relaxed', 'standard', 'hardened'] as const).map((entry) => (
+              <button
+                key={entry}
+                type="button"
+                className={defaultDifficulty === entry ? 'is-active' : ''}
+                onClick={() => setDefaultDifficulty(entry)}
+              >
+                {tr(`nation.difficulty.${entry}` as MessageKey)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="settings-row settings-row--check">
+          <span>{tr('settings.notifications')}</span>
+          <input
+            type="checkbox"
+            checked={notifications}
+            onChange={(event) => setNotifications(event.target.checked)}
+          />
+        </label>
+        <label className="settings-row settings-row--check">
+          <span>{tr('settings.autosave')}</span>
+          <input
+            type="checkbox"
+            checked={autosave}
+            onChange={(event) => setAutosave(event.target.checked)}
+          />
+        </label>
+      </section>
+
+      <section>
+        <h3>{tr('settings.audio')}</h3>
+        <label className="settings-row">
+          <span>
+            {tr('settings.volume')}
+            <em>{tr('settings.volumeHint')}</em>
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(volume * 100)}
+            onChange={(event) => setVolume(Number(event.target.value) / 100)}
+          />
+        </label>
+      </section>
+
+      <section>
         <h3>{tr('settings.interface')}</h3>
+        <div className="settings-row">
+          <span>
+            {tr('settings.uiScale')}
+            <em>{tr('settings.uiScaleHint')}</em>
+          </span>
+          <input
+            type="range"
+            min={85}
+            max={125}
+            value={Math.round(uiScale * 100)}
+            onChange={(event) => setUiScale(Number(event.target.value) / 100)}
+          />
+        </div>
         <div className="settings-row">
           <span>{tr('settings.panelPosition')}</span>
           <div className="segmented">
@@ -185,6 +260,8 @@ function SaveLoadContent({ mode }: { mode: 'save' | 'load' }) {
   const exportSlot = useAppStore((state) => state.exportSlot);
   const importSaveText = useAppStore((state) => state.importSaveText);
   const closeDialog = useAppStore((state) => state.closeDialog);
+  const session = useAppStore((state) => state.session);
+  const [saveName, setSaveName] = useState(session?.saveName ?? '');
   const [pendingDelete, setPendingDelete] = useState<SaveSlotId | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -198,7 +275,7 @@ function SaveLoadContent({ mode }: { mode: 'save' | 'load' }) {
   const handleSlot = async (slot: SaveSlotId, occupied: boolean) => {
     if (mode === 'save') {
       if (occupied && !window.confirm(tr('save.confirmOverwrite'))) return;
-      await saveToSlot(slot);
+      await saveToSlot(slot, false, saveName);
       closeDialog();
       return;
     }
@@ -207,6 +284,18 @@ function SaveLoadContent({ mode }: { mode: 'save' | 'load' }) {
 
   return (
     <div className="save-load">
+      {mode === 'save' && (
+        <label className="settings-row">
+          <span>{tr('save.name')}</span>
+          <input
+            className="input"
+            value={saveName}
+            maxLength={60}
+            placeholder={tr('save.namePlaceholder')}
+            onChange={(event) => setSaveName(event.target.value)}
+          />
+        </label>
+      )}
       <div className="slot-list">
         {slots.map((slot) => {
           const file = bySlot.get(slot);
@@ -218,7 +307,10 @@ function SaveLoadContent({ mode }: { mode: 'save' | 'load' }) {
               <div className="slot__body">
                 {file ? (
                   <>
-                    <strong>{savedCountry ? localize(savedCountry.name, locale) : file.meta.countryName}</strong>
+                    <strong>
+                      {file.meta.customName ??
+                        (savedCountry ? localize(savedCountry.name, locale) : file.meta.countryName)}
+                    </strong>
                     <span className="slot__meta">
                       {tr('time.year', { year: n(file.meta.year, { useGrouping: false }) })} ·{' '}
                       {tr('common.day')} {n(file.meta.day)} ·{' '}

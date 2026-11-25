@@ -3,6 +3,10 @@ import { PERSONALITIES } from '../data/personalities';
 import { RESOURCES, RESOURCE_ORDER } from '../data/resources';
 import { getTech, TECHNOLOGIES } from '../data/research';
 import { INFRASTRUCTURE_PROJECTS, getProject } from '../data/production';
+import { POLICIES } from '../data/policies';
+import { SITUATIONS } from '../data/situations';
+import { TRADE_RESOURCES } from '../gameplay/trade/types';
+import { MAX_ACTIVE_POLICIES } from '../gameplay/policy/types';
 import { capitalRegionOf, regionAt } from '../data/regions';
 import { TERRAIN } from '../data/terrain';
 import { GEOGRAPHY, normalisedCentroid, regionAirports, regionCities, regionPorts } from '../geo';
@@ -50,7 +54,13 @@ import type {
   CountryBrief,
   DiplomacyView,
   FormationView,
+  IntelligenceView,
+  ManeuverView,
   ObjectiveView,
+  PolicySummaryView,
+  PopulationView,
+  SituationView,
+  TradeView,
   PlayerSnapshot,
   MapRegionView,
   ProductionProjectView,
@@ -172,6 +182,7 @@ const buildRegionView = (
     population: city.population,
     strategicValue: city.strategicValue,
     industrialValue: city.industrialValue,
+    development: region.development ?? region.infrastructure,
     hasAirport: city.hasAirport,
     hasPort: city.hasPort,
     isCapital: city.isCapital,
@@ -245,6 +256,18 @@ const buildRegionView = (
     frontlineId: region.frontlineId ?? null,
     airDefense: region.airDefense ?? 0,
     gdpShare,
+    workingPopulation: region.workingPopulation,
+    militaryAgePopulation: region.militaryAgePopulation,
+    populationCapacity: region.populationCapacity,
+    civilianIndustry: region.civilianIndustry,
+    militaryIndustry: region.militaryIndustry,
+    constructionCapacity: region.constructionCapacity,
+    airportCapacity: region.airportCapacity,
+    portCapacity: region.portCapacity,
+    extractionCapacity: region.extractionCapacity,
+    development: region.development,
+    radar: region.radar,
+    fortification: region.fortification,
   };
 };
 
@@ -533,11 +556,13 @@ const buildConstructionViews = (country: CountryState, locale: LocaleCode): Cons
     const region = regionAt(order.regionId);
     return {
       id: order.id,
+      projectId: order.projectId,
       projectName: project ? localize(project.name, locale) : order.projectId,
       regionName: region ? localize(region.name, locale) : order.regionId,
       daysRemaining: Math.max(0, Math.ceil(order.daysRemaining)),
       totalDays: order.totalDays,
       progress: Math.min(1, 1 - order.daysRemaining / Math.max(1, order.totalDays)),
+      priority: order.priority ?? 'normal',
     };
   });
 
@@ -583,6 +608,200 @@ const buildObjectives = (country: CountryState, locale: LocaleCode): ObjectiveVi
       };
     });
 
+const buildPopulationView = (country: CountryState, locale: LocaleCode): PopulationView => ({
+  population: country.society.population,
+  workingPopulation: country.society.workingPopulation,
+  militaryAgePopulation: country.society.militaryAgePopulation,
+  manpowerPool: country.society.manpowerPool,
+  mobilized: country.society.mobilized,
+  casualties: country.society.casualties,
+  recruitmentPressure: country.society.recruitmentPressure,
+  growthRate: country.society.growthRate,
+  mobilization: country.policy.mobilization,
+  regions: country.regions.map((region) => {
+    const definition = regionAt(region.id);
+    return {
+      id: region.id,
+      name: definition ? localize(definition.name, locale) : region.id,
+      population: region.population,
+      workingPopulation: region.workingPopulation,
+      militaryAgePopulation: region.militaryAgePopulation,
+      populationCapacity: region.populationCapacity,
+      civilianIndustry: region.civilianIndustry,
+      militaryIndustry: region.militaryIndustry,
+      constructionCapacity: region.constructionCapacity,
+      airportCapacity: region.airportCapacity,
+      portCapacity: region.portCapacity,
+      extractionCapacity: region.extractionCapacity,
+      development: region.development,
+      radar: region.radar,
+      fortification: region.fortification,
+    };
+  }),
+});
+
+const buildTradeView = (world: World, country: CountryState, locale: LocaleCode): TradeView => {
+  const routes = (country.trade?.routes ?? [])
+    .map((id) => world.tradeRoutes[id])
+    .filter((route): route is NonNullable<typeof route> => Boolean(route))
+    .map((route) => {
+      const partnerId = route.sellerId === country.id ? route.buyerId : route.sellerId;
+      const partner = COUNTRY_BY_ID[partnerId];
+      return {
+        id: route.id,
+        partnerId,
+        partnerName: partner ? localize(partner.name, locale) : partnerId,
+        resource: route.resource,
+        resourceName: localize(RESOURCES[route.resource].name, locale),
+        amount: route.amount,
+        kind: route.contract ? ('contract' as const) : route.kind,
+        throughput: route.throughput,
+        disruption: route.disruption,
+        active: route.active,
+        side: route.sellerId === country.id ? ('export' as const) : ('import' as const),
+      };
+    });
+  const partners = Object.entries(country.diplomacy.relations)
+    .map(([id, relation]) => {
+      const definition = COUNTRY_BY_ID[id];
+      return definition
+        ? {
+            id,
+            name: localize(definition.name, locale),
+            agreed: country.diplomacy.tradePartners.includes(id),
+            atWar: Boolean(relation.atWar),
+          }
+        : null;
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    .sort((a, b) => Number(b.agreed) - Number(a.agreed) || a.name.localeCompare(b.name));
+  return {
+    prices: TRADE_RESOURCES.map((id) => ({
+      id,
+      name: localize(RESOURCES[id].name, locale),
+      price: world.market.prices[id],
+    })),
+    routes,
+    partners,
+    income: country.trade?.income ?? 0,
+    expenses: country.trade?.expenses ?? 0,
+    disruption: country.trade?.disruption ?? 0,
+    shortages: (country.trade?.shortages ?? []).map((id) => localize(RESOURCES[id].name, locale)),
+    surpluses: (country.trade?.surpluses ?? []).map((id) => localize(RESOURCES[id].name, locale)),
+    volume: world.market.volume,
+  };
+};
+
+const buildIntelligenceView = (country: CountryState, locale: LocaleCode): IntelligenceView => ({
+  coverage: country.intelligence.coverage,
+  confidence: country.intelligence.confidence,
+  detection: country.intelligence.detection,
+  radarCoverage: country.intelligence.radarCoverage,
+  contacts: Object.values(country.intelligence.contacts)
+    .map((contact) => {
+      const definition = COUNTRY_BY_ID[contact.countryId];
+      return {
+        countryId: contact.countryId,
+        name: definition ? localize(definition.name, locale) : contact.countryId,
+        confidence: contact.confidence,
+        estimatedArmyStrength: contact.estimatedArmyStrength,
+        estimatedNavalStrength: contact.estimatedNavalStrength,
+        estimatedAirStrength: contact.estimatedAirStrength,
+        detectedFormations: contact.detectedFormations,
+        lastSeenDay: contact.lastSeenDay,
+        source: contact.source,
+      };
+    })
+    .sort((a, b) => b.confidence - a.confidence || b.estimatedArmyStrength - a.estimatedArmyStrength),
+});
+
+const buildPolicies = (country: CountryState, locale: LocaleCode): PolicySummaryView => ({
+  active: [...country.policy.active],
+  available: POLICIES.map((policy) => ({
+    id: policy.id,
+    name: localize(policy.name, locale),
+    description: localize(policy.description, locale),
+    category: policy.category,
+    active: country.policy.active.includes(policy.id),
+    upkeep: policy.upkeep,
+    politicalCost: policy.politicalCost,
+    effects: Object.entries(policy.effects).map(([key, value]) => {
+      const label = translate(locale, `effect.${key}` as MessageKey);
+      const shown = value === undefined ? '' : `${value > 0 ? '+' : ''}${Math.round(value * 100)}%`;
+      return `${label} ${shown}`.trim();
+    }),
+  })),
+  mobilization: country.policy.mobilization,
+  slots: country.policy.active.length,
+  maxSlots: MAX_ACTIVE_POLICIES,
+});
+
+const buildSituations = (world: World, country: CountryState, locale: LocaleCode): SituationView[] => {
+  const views: SituationView[] = [];
+  for (const active of world.situations.active) {
+    if (active.countryId !== country.id) continue;
+    const definition = SITUATIONS.find((entry) => entry.id === active.definitionId);
+    if (!definition) continue;
+    views.push({
+      id: active.id,
+      name: localize(definition.name, locale),
+      description: localize(definition.description, locale),
+      severity: active.severity,
+      countryName: country.id,
+      startDay: active.startDay,
+      endDay: active.endDay,
+      active: true,
+    });
+  }
+  for (const entry of world.situations.history.slice(0, 8)) {
+    if (entry.countryId !== country.id) continue;
+    const definition = SITUATIONS.find((item) => item.id === entry.definitionId);
+    if (!definition) continue;
+    views.push({
+      id: entry.id,
+      name: localize(definition.name, locale),
+      description: localize(definition.description, locale),
+      severity: entry.severity,
+      countryName: country.id,
+      startDay: entry.startDay,
+      endDay: entry.endDay,
+      active: false,
+    });
+  }
+  return views;
+};
+
+const buildManeuver = (country: CountryState, locale: LocaleCode): ManeuverView => {
+  const armyName = (id: string): string => {
+    const army = country.military.armies.find((entry) => entry.id === id);
+    return army ? army.name : id;
+  };
+  const regionName = (id: string): string => {
+    const definition = regionAt(id);
+    return definition ? localize(definition.name, locale) : id;
+  };
+  return {
+    transportCapacity: country.maneuver.lastTransportCapacity ?? 0,
+    airliftCapacity: country.maneuver.lastAirliftCapacity ?? 0,
+    invasions: country.maneuver.invasions.map((entry) => ({
+      id: entry.id,
+      armyName: armyName(entry.armyId),
+      targetName: regionName(entry.targetRegionId),
+      phase: entry.phase,
+      progress: entry.progress,
+      daysRemaining: entry.daysRemaining,
+    })),
+    airlifts: country.maneuver.airlifts.map((entry) => ({
+      id: entry.id,
+      armyName: armyName(entry.armyId),
+      targetName: regionName(entry.targetRegionId),
+      kind: entry.kind,
+      progress: 1 - entry.daysRemaining / Math.max(1, entry.totalDays),
+      daysRemaining: entry.daysRemaining,
+    })),
+  };
+};
+
 const buildLogistics = (country: CountryState, locale: LocaleCode): PlayerSnapshot['logistics'] => {
   const armies: ArmySupplyView[] = country.military.armies.map((army) => ({
     id: army.id,
@@ -602,6 +821,18 @@ const buildLogistics = (country: CountryState, locale: LocaleCode): PlayerSnapsh
     averageSupply,
     armies,
     supplyHubs: country.regions.filter((region) => region.supplyHub > 0.1).length,
+    throughput: country.logisticsState?.throughput ?? 0,
+    convoyCapacity: country.logisticsState?.convoyCapacity ?? 0,
+    disruption: country.logisticsState?.disruption ?? 0,
+    bottlenecks: (country.logisticsState?.bottlenecks ?? []).map((id) => {
+      const definition = regionAt(id);
+      const region = country.regions.find((entry) => entry.id === id);
+      return {
+        id,
+        name: definition ? localize(definition.name, locale) : id,
+        supply: region?.supplyLevel ?? 0,
+      };
+    }),
   };
 };
 
@@ -1027,6 +1258,11 @@ const buildWarfareView = (
       type,
       count: count ?? 0,
     })),
+    production: (warfare?.missiles.production ?? []).map((order) => ({
+      type: order.type,
+      daysRemaining: Math.max(0, Math.ceil(order.daysRemaining)),
+      totalDays: order.totalDays,
+    })),
     cooldownDays: Math.max(
       0,
       (warfare?.missiles.cooldownUntilDay ?? 0) - world.day,
@@ -1220,6 +1456,12 @@ export const buildPlayerSnapshot = (input: SnapshotInput): PlayerSnapshot | null
     },
     objectives: buildObjectives(country, locale),
     logistics: buildLogistics(country, locale),
+    society: buildPopulationView(country, locale),
+    trade: buildTradeView(input.world, country, locale),
+    intelligence: buildIntelligenceView(country, locale),
+    policies: buildPolicies(country, locale),
+    situations: buildSituations(input.world, country, locale),
+    maneuver: buildManeuver(country, locale),
     warfare: buildWarfareView(input.world, country, locale),
     cities: citiesOf(country.id),
     warnings: buildWarnings(country, locale),

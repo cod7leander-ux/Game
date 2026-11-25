@@ -58,7 +58,8 @@ export const regionOutput = (
   if (!definition) return target;
   const terrain = terrainOf(definition.terrain);
   const economy = country.economy;
-  const industry = economy.industrialCapacity * (0.45 + definition.industryShare * 1.8);
+  const regionalIndustry = 0.7 + (region.civilianIndustry ?? 0.2) * 0.28 + (region.militaryIndustry ?? 0.1) * 0.1;
+  const industry = economy.industrialCapacity * (0.45 + definition.industryShare * 1.8) * regionalIndustry;
   const efficiency =
     terrain.industry *
     (0.5 + region.infrastructure * 0.5) *
@@ -109,7 +110,12 @@ export class EconomySystem {
 
     const stabilityFactor = 0.55 + clamp01(country.stability) * 0.45;
     const tradePartners = Math.max(0, country.diplomacy.tradePartners.length - country.diplomacy.embargoed.length);
-    const tradeIncome = country.economy.gdp * TUNING.tradeIncomeFactor * tradePartners;
+    const tradeIncome =
+      country.economy.gdp *
+      TUNING.tradeIncomeFactor *
+      tradePartners *
+      (1 + (country.modifiers?.trade ?? 0)) +
+      (country.trade?.income ?? 0) * 0.25;
     const sanctioned = Object.values(country.diplomacy.relations).some((relation) => relation.sanctioned);
     const sanctionedPenalty = sanctioned ? 0.9 : 1;
     const blockade = country.warfare?.naval.blockadeEffect ?? 0;
@@ -128,7 +134,9 @@ export class EconomySystem {
       sanctionedPenalty *
       blockadePenalty;
 
-    const upkeep = dailyUpkeep(country) + country.production.construction.length * TUNING.constructionUpkeep;
+    const upkeep =
+      dailyUpkeep(country) * (1 + Math.max(-0.15, country.modifiers?.military ?? 0) * 0.3) +
+      country.production.construction.length * TUNING.constructionUpkeep;
     const corruption = economy.gdp * 0.00002;
     const expenses = upkeep + corruption;
     const net = income - expenses;
@@ -176,23 +184,8 @@ export class EconomySystem {
     }
     economy.resourceFlow = flow;
 
-    // Population growth follows food surplus and stability.
-    const foodRatio = clamp01(resources.food / Math.max(1, cap));
-    const growth = TUNING.manpowerGrowth * (0.4 + foodRatio) * (0.5 + country.stability) * (1 - country.unrest * 0.3);
-    const oldPopulation = country.population;
-    country.population = Math.round(oldPopulation * (1 + growth));
-    const populationScale = country.population / Math.max(1, oldPopulation);
-    for (const region of country.regions) {
-      region.population = Math.round(region.population * populationScale);
-    }
-
-    // Manpower replenishment toward the pool ceiling.
-    const ceiling = Math.max(1, (country.population * 0.004) / 1000);
-    economy.availableManpower = Math.min(
-      ceiling,
-      economy.availableManpower + ceiling * 0.0006 + 0.02,
-    );
-
+    // Population growth and manpower recovery are handled by PopulationSystem,
+    // which owns regional demographics. The economy only consumes the pool.
     const oilShortage = resources.oil <= 0;
     country.military.readiness = clamp(
       country.military.readiness + (oilShortage ? -0.0025 : 0.0005),
@@ -201,7 +194,11 @@ export class EconomySystem {
     );
 
     // Industrial capacity grows slowly with investment and stability.
-    economy.industrialCapacity *= 1 + 0.00005 * (1 + country.modifiers.production) * (0.5 + country.stability);
+    economy.industrialCapacity *=
+      1 +
+      0.00005 *
+        (1 + country.modifiers.production + (country.modifiers.civilian ?? 0) * 0.5) *
+        (0.5 + country.stability);
 
     recoverRegions(country);
     recomputeStrength(country);

@@ -26,6 +26,7 @@
 }
 
 :root {
+  --ui-scale: 1;
   --bg-0: #04070c;
   --bg-1: #080e16;
   --panel: rgba(9, 15, 23, 0.82);
@@ -140,6 +141,7 @@ input {
   inset: 0;
   pointer-events: none;
   z-index: 5;
+  zoom: var(--ui-scale, 1);
 }
 
 .app-shell__screens > * {

@@ -2,14 +2,20 @@ import type { GameSpeed } from '../core/config';
 import type { CountryState, NotificationEntry } from '../gameplay/country/types';
 import type { SavedTacticalBattle } from '../gameplay/tactical/types';
 import type { Blockade, Frontline, PeaceOffer, War } from '../gameplay/war/types';
+import type { MarketState, TradeRoute } from '../gameplay/trade/types';
+import type { WorldSituationState } from '../gameplay/situation/types';
 
 /** Bump when the saved shape changes; add a migration in migrations.ts. */
-export const CURRENT_SAVE_VERSION = 6;
+export const CURRENT_SAVE_VERSION = 7;
 
 export const SAVE_SLOT_IDS = ['auto', '1', '2', '3', '4', '5'] as const;
 export type SaveSlotId = (typeof SAVE_SLOT_IDS)[number];
 
 export interface SaveMeta {
+  /** Player-supplied campaign label; older saves omit it. */
+  customName?: string;
+  /** Human-readable campaign name, shown in the archive. */
+  name?: string;
   countryId: string;
   countryName: string;
   iso2: string | null;
@@ -40,6 +46,12 @@ export interface SavedWorld {
   frontlines?: Frontline[];
   blockades?: Blockade[];
   peaceOffers?: PeaceOffer[];
+  /** Dynamic market prices and aggregate supply/demand. */
+  market?: MarketState;
+  /** International trade routes shared by both endpoint countries. */
+  tradeRoutes?: Record<string, TradeRoute>;
+  /** Emergent situations and bounded history. */
+  situations?: WorldSituationState;
 }
 
 export interface SavedClock {

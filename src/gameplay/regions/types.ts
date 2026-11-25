@@ -56,4 +56,28 @@ export interface RegionState {
   output: Partial<Record<ResourceId, number>>;
   /** 0..1 daily supply reachable through the geographic network. */
   supplyLevel: number;
+  /** Working-age population in this region. */
+  workingPopulation: number;
+  /** Military-age population in this region. */
+  militaryAgePopulation: number;
+  /** People the regional economy and housing can sustain. */
+  populationCapacity: number;
+  /** 0..1 civilian industrial base. */
+  civilianIndustry: number;
+  /** 0..1 military industrial base. */
+  militaryIndustry: number;
+  /** 0..1 construction capacity from local industry and infrastructure. */
+  constructionCapacity: number;
+  /** 0..1 airport capacity, raised by air-base projects. */
+  airportCapacity: number;
+  /** 0..1 port capacity, raised by port projects. */
+  portCapacity: number;
+  /** 0..1 resource extraction capacity. */
+  extractionCapacity: number;
+  /** 0..1 composite regional development. */
+  development: number;
+  /** 0..1 radar coverage from installations. */
+  radar: number;
+  /** 0..1 fortification level, feeds regional defence. */
+  fortification: number;
 }

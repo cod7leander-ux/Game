@@ -9,6 +9,7 @@ import { capitalRegionOf } from '../../data/regions';
 import { computeSupplyField, supplyAtRegion, type SupplyField } from './supplyNetwork';
 import { REGION_GEO_BY_ID } from '../../geo';
 import { findRegionState } from '../war/WarSystem';
+import { getUnit } from '../../data/units';
 
 /**
  * Lightweight operational logistics.
@@ -77,6 +78,7 @@ export const computeSupply = (
   const terrainSupply = (homeTerrain.supply + localTerrain.supply) / 2;
   const blockade = country.warfare?.naval.blockadeEffect ?? 0;
   const isolated = isArmyIsolated(world, country, army.regionId);
+  const networkFactor = 0.85 + (country.logisticsState?.throughput ?? 0.5) * 0.15;
 
   const supply = clamp01(
     base *
@@ -86,6 +88,7 @@ export const computeSupply = (
       occupationPenalty *
       regionalOccupation *
       (1 - blockade * 0.28) *
+      networkFactor *
       (isolated ? 0.62 : 1) *
       tech,
   );
@@ -134,6 +137,7 @@ export class LogisticsSystem {
    */
   tick(world: World): void {
     for (const country of world.countries.values()) {
+      this.updateNetwork(world, country);
       // The geographic field is recomputed once per country per day and stored
       // on regions, so the supply layer and the army model cannot disagree.
       const field = computeSupplyField(world, country);
@@ -189,6 +193,81 @@ export class LogisticsSystem {
       }
       removeEmptyArmies(country);
     }
+  }
+
+  /**
+   * Derives convoy capacity, hubs, bottlenecks and throughput once per day.
+   * Trade routes reuse this state for their route capacity instead of keeping a
+   * second, contradictory logistics model.
+   */
+  private updateNetwork(world: World, country: CountryState): void {
+    if (!country.logisticsState) {
+      country.logisticsState = {
+        hubCount: 0,
+        throughput: 0.6,
+        convoyCapacity: 1,
+        disruption: 0,
+        bottlenecks: [],
+        convoyLosses: 0,
+        lastUpdateDay: 0,
+      };
+    }
+    const state = country.logisticsState;
+    let hubs = 0;
+    let capacity = 0;
+    let transports = 0;
+    for (const region of country.regions) {
+      const definition = REGION_GEO_BY_ID[region.id];
+      const isHub =
+        region.supplyHub > 0.08 ||
+        region.id === country.capitalRegionId ||
+        (region.portCapacity ?? 0) > 0.1 ||
+        (region.airportCapacity ?? 0) > 0.1;
+      if (isHub) hubs += 1;
+      capacity +=
+        0.3 +
+        (region.portCapacity ?? 0) * 0.9 +
+        (region.airportCapacity ?? 0) * 0.4 +
+        (region.constructionCapacity ?? 0) * 0.4 +
+        region.infrastructure * 0.55 +
+        region.supplyHub * 0.8;
+      void definition;
+    }
+    for (const [unitId, count] of Object.entries(country.military.formations)) {
+      const unit = getUnit(unitId);
+      if (unit?.role === 'transport' && unit.domain === 'air') transports += count * 2.4;
+      if (unit?.domain === 'naval' && unit.role === 'transport') transports += count * 4;
+    }
+    const routes = (country.trade?.routes ?? [])
+      .map((id) => world.tradeRoutes[id])
+      .filter(Boolean);
+    const routeDisruption = routes.length
+      ? routes.reduce((sum, route) => sum + route.disruption, 0) / routes.length
+      : 0;
+    const blockade = country.warfare?.naval.blockadeEffect ?? 0;
+    const occupation = country.occupierId ? 0.55 : 1;
+    state.hubCount = hubs;
+    state.convoyCapacity = Math.max(0.5, transports + capacity * 0.2);
+    state.disruption = clamp01(routeDisruption * 0.7 + blockade * 0.55);
+    state.throughput = clamp01(
+      (capacity / Math.max(1, country.regions.length)) *
+        0.45 *
+        occupation *
+        (1 - state.disruption * 0.6) *
+        (1 + (country.modifiers?.logistics ?? 0)),
+    );
+    state.bottlenecks = country.regions
+      .slice()
+      .sort(
+        (a, b) =>
+          a.supplyLevel +
+          a.infrastructure * 0.4 -
+          (b.supplyLevel + b.infrastructure * 0.4),
+      )
+      .slice(0, 3)
+      .map((region) => region.id);
+    state.convoyLosses += state.disruption * blockade * 0.8;
+    state.lastUpdateDay = world.day;
   }
 }
 

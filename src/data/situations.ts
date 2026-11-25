@@ -1,0 +1,160 @@
+import type { SituationDefinition } from '../gameplay/situation/types';
+
+/**
+ * Reusable emergent situations. These are not missions or chapters: they are
+ * world conditions that can occur whenever their social, economic or military
+ * preconditions hold, and they resolve without player objectives.
+ */
+export const SITUATIONS: SituationDefinition[] = [
+  {
+    id: 'sit_food_shortage',
+    name: { en: 'Food Shortage', fa: 'کمبود غذا' },
+    description: {
+      en: 'Food stocks have fallen below demand. Markets empty and public patience wears thin.',
+      fa: 'ذخایر غذا به زیر سطح تقاضا رسیده است. بازارها خالی و صبر عمومی کم می‌شود.',
+    },
+    severity: 'moderate',
+    duration: 45,
+    effects: { stability: -0.04, unrest: 0.05, money: -12 },
+    dailyEffects: { stability: -0.0004, unrest: 0.0008 },
+    predicate: (context) => context.food < 2 || context.foodFlow < -1.2,
+    chance: 0.55,
+  },
+  {
+    id: 'sit_debt_crisis',
+    name: { en: 'Debt Crisis', fa: 'بحران بدهی' },
+    description: {
+      en: 'The treasury is borrowing to meet daily obligations, and creditors are losing confidence.',
+      fa: 'خزانه برای پرداخت تعهدات روزانه وام می‌گیرد و اعتماد طلبکاران کاهش می‌یابد.',
+    },
+    severity: 'major',
+    duration: 60,
+    effects: { stability: -0.05, money: -35, unrest: 0.03 },
+    dailyEffects: { money: -0.6 },
+    predicate: (context) => context.money < -10,
+    chance: 0.5,
+  },
+  {
+    id: 'sit_labour_unrest',
+    name: { en: 'Labour Unrest', fa: 'ناآرامی کارگری' },
+    description: {
+      en: 'Wage disputes and shortages have triggered strikes in industrial districts.',
+      fa: 'اختلاف دستمزد و کمبودها باعث اعتصاب در محلات صنعتی شده است.',
+    },
+    severity: 'moderate',
+    duration: 35,
+    effects: { stability: -0.04, unrest: 0.06, damage: 0.02 },
+    dailyEffects: { stability: -0.0003 },
+    predicate: (context) => context.unrest > 0.34 || context.stability < 0.36,
+    chance: 0.45,
+  },
+  {
+    id: 'sit_war_weariness',
+    name: { en: 'War Weariness', fa: 'خستگی جنگ' },
+    description: {
+      en: 'Casualties and mobilisation are eroding support for the war effort.',
+      fa: 'تلفات و بسیج، حمایت از تلاش جنگی را فرسایش می‌دهد.',
+    },
+    severity: 'moderate',
+    duration: 40,
+    effects: { stability: -0.035, warExhaustion: 0.04 },
+    dailyEffects: { warExhaustion: 0.0005 },
+    predicate: (context) => context.atWar && context.warExhaustion > 0.45,
+    chance: 0.45,
+  },
+  {
+    id: 'sit_trade_collapse',
+    name: { en: 'Trade Disruption', fa: 'اختلال تجارت' },
+    description: {
+      en: 'Convoys are delayed and insurers are withdrawing cover from the affected routes.',
+      fa: 'کاروان‌ها با تأخیر مواجه‌اند و بیمه‌گران پوشش مسیرهای آسیب‌دیده را پس می‌گیرند.',
+    },
+    severity: 'moderate',
+    duration: 30,
+    effects: { money: -18, stability: -0.02 },
+    dailyEffects: { money: -0.25 },
+    predicate: (context) => context.tradeDisruption > 0.36,
+    chance: 0.5,
+  },
+  {
+    id: 'sit_infrastructure_failure',
+    name: { en: 'Infrastructure Failure', fa: 'خرابی زیرساخت' },
+    description: {
+      en: 'Neglected bridges, grids and water systems are failing under wartime strain.',
+      fa: 'پل‌ها، شبکه‌ها و سامانه‌های آب فرسوده زیر فشار جنگ از کار می‌افتند.',
+    },
+    severity: 'major',
+    duration: 50,
+    effects: { damage: 0.04, stability: -0.02, money: -22 },
+    dailyEffects: { damage: 0.0004 },
+    predicate: (context) => context.averageDamage > 0.24,
+    chance: 0.5,
+  },
+  {
+    id: 'sit_blockade_squeeze',
+    name: { en: 'Blockade Squeeze', fa: 'فشار محاصره' },
+    description: {
+      en: 'Enemy naval pressure is choking imports and forcing rationing.',
+      fa: 'فشار دریایی دشمن واردات را خفه می‌کند و سهمیه‌بندی را الزامی می‌سازد.',
+    },
+    severity: 'major',
+    duration: 45,
+    effects: { money: -30, unrest: 0.05, stability: -0.03 },
+    dailyEffects: { money: -0.5, unrest: 0.0005 },
+    predicate: (context) => context.blockade > 0.3,
+    chance: 0.5,
+  },
+  {
+    id: 'sit_resource_boom',
+    name: { en: 'Resource Boom', fa: 'رونق منابع' },
+    description: {
+      en: 'A surge in strategic mineral and energy output is lifting state revenue.',
+      fa: 'جهش تولید مواد معدنی راهبردی و انرژی، درآمد دولت را بالا می‌برد.',
+    },
+    severity: 'minor',
+    duration: 50,
+    effects: { money: 28, stability: 0.02, resource: { rare: 2, energy: 3 } },
+    dailyEffects: { money: 0.3 },
+    predicate: (context) => context.rareFlow > 0.05 && !context.atWar,
+    chance: 0.25,
+  },
+  {
+    id: 'sit_mobilisation_backlash',
+    name: { en: 'Mobilisation Backlash', fa: 'واکنش منفی به بسیج' },
+    description: {
+      en: 'Heavy recruitment is pulling workers from factories and families from their homes.',
+      fa: 'نیروگیری سنگین کارگران را از کارخانه‌ها و خانواده‌ها را از خانه‌ها دور می‌کند.',
+    },
+    severity: 'moderate',
+    duration: 35,
+    effects: { stability: -0.03, unrest: 0.05, money: -10 },
+    predicate: (context) => context.recruitmentPressure > 0.62,
+    chance: 0.4,
+  },
+  {
+    id: 'sit_diplomatic_incident',
+    name: { en: 'Diplomatic Incident', fa: 'حادثه دیپلماتیک' },
+    description: {
+      en: 'A border incident and hostile rhetoric have raised the risk of escalation.',
+      fa: 'یک حادثه مرزی و لفاظی خصمانه خطر تشدید تنش را بالا برده است.',
+    },
+    severity: 'minor',
+    duration: 25,
+    effects: { stability: -0.015, warExhaustion: 0.01 },
+    predicate: (context) => context.threat > 0.55,
+    chance: 0.35,
+  },
+  {
+    id: 'sit_epidemic',
+    name: { en: 'Public Health Emergency', fa: 'وضعیت اضطراری بهداشت عمومی' },
+    description: {
+      en: 'Crowding, disruption and weak services have produced a public health emergency.',
+      fa: 'تراکم، اختلال و خدمات ضعیف به یک وضعیت اضطراری بهداشت عمومی انجامیده است.',
+    },
+    severity: 'major',
+    duration: 40,
+    effects: { stability: -0.03, unrest: 0.03, money: -24 },
+    predicate: (context) => context.occupied || (context.unrest > 0.45 && context.foodFlow < 0),
+    chance: 0.3,
+  },
+];

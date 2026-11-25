@@ -31,6 +31,19 @@ import { MilitarySystem } from './military/MilitarySystem';
 import { BattlefieldManager } from './tactical/BattlefieldManager';
 import type { BattleCommand, SavedTacticalBattle } from './tactical/types';
 import { ResearchSystem, startResearch as beginProgramme } from './research/ResearchSystem';
+import { PopulationSystem } from './society/PopulationSystem';
+import { createSocietyState } from './society/types';
+import { TradeSystem } from './trade/TradeSystem';
+import { createTradeState } from './trade/types';
+import { IntelligenceSystem } from './intelligence/IntelligenceSystem';
+import { createIntelligenceState } from './intelligence/types';
+import { PolicySystem } from './policy/PolicySystem';
+import { createPolicyState } from './policy/types';
+import { ManeuverSystem } from './maneuver/ManeuverSystem';
+import { createManeuverState } from './maneuver/types';
+import { WorldEventSystem } from './situation/WorldEventSystem';
+import { StrategicWeaponsSystem } from './strategic/StrategicWeaponsSystem';
+import { createLogisticsState } from './logistics/types';
 import type { World } from './World';
 
 /**
@@ -65,6 +78,13 @@ export class Simulation {
   private readonly diplomacy: DiplomacySystem;
   private readonly war: WarSystem;
   private readonly warfare: WarfareSystem;
+  private readonly population: PopulationSystem;
+  private readonly trade: TradeSystem;
+  private readonly intelligence: IntelligenceSystem;
+  private readonly policies: PolicySystem;
+  private readonly maneuver: ManeuverSystem;
+  private readonly situations: WorldEventSystem;
+  private readonly strategicWeapons: StrategicWeaponsSystem;
   private readonly ai: AIDirector;
   private readonly lowTreasuryWarned = new Set<string>();
 
@@ -75,6 +95,13 @@ export class Simulation {
     this.diplomacy = new DiplomacySystem(this.events);
     this.war = new WarSystem(this.events, this.diplomacy);
     this.warfare = new WarfareSystem(this.events);
+    this.population = new PopulationSystem(this.events);
+    this.trade = new TradeSystem(this.events);
+    this.intelligence = new IntelligenceSystem(this.events);
+    this.policies = new PolicySystem(this.events);
+    this.maneuver = new ManeuverSystem(this.events);
+    this.situations = new WorldEventSystem(this.events);
+    this.strategicWeapons = new StrategicWeaponsSystem(this.events);
     this.ai = new AIDirector(world, this.events);
     this.battlefields = new BattlefieldManager(world.playerCountryId);
     // Every strategic battle publishes its rosters; the tactical manager opens
@@ -83,6 +110,10 @@ export class Simulation {
       if (event.type === 'battleResolved') {
         this.battlefields.onBattleResolved(world, event);
         this.war.onBattle(world, event);
+        const attacker = world.get(event.attackerId);
+        const defender = world.get(event.defenderId);
+        if (attacker) this.population.registerCasualties(attacker, event.attackerLosses, event.day);
+        if (defender) this.population.registerCasualties(defender, event.defenderLosses, event.day);
       }
     });
   }
@@ -92,10 +123,13 @@ export class Simulation {
 
     for (const country of this.world.countries.values()) {
       const result = this.economy.tick(country);
+      this.population.tick(country, day);
       this.stability.tick(country, day);
       this.research.tick(country, day);
       this.production.tick(country, day);
       this.military.tick(country, day);
+      this.policies.tick(country, day);
+      this.strategicWeapons.tick(country, day);
       this.collectOccupationTribute(country);
 
       if (result.lowTreasury && !this.lowTreasuryWarned.has(country.id)) {
@@ -110,10 +144,16 @@ export class Simulation {
 
     this.armies.tick(this.world, day);
     this.logistics.tick(this.world);
+    this.trade.tick(this.world, day);
     this.war.tick(this.world, day);
     this.warfare.tick(this.world, day, (countryId, armyId, targetId) =>
       this.marchArmyTo(countryId, armyId, targetId).ok,
     );
+    this.maneuver.tick(this.world, day);
+    for (const country of this.world.countries.values()) {
+      this.intelligence.tick(this.world, country, day);
+    }
+    this.situations.tick(this.world, day);
 
     if (day % 7 === 0) {
       for (const country of this.world.countries.values()) {
@@ -123,6 +163,11 @@ export class Simulation {
       }
     }
 
+    for (const country of this.world.countries.values()) {
+      if (country.id === this.world.playerCountryId || country.occupierId) continue;
+      this.policies.consider(country, day);
+    }
+    this.maneuver.aiConsider(this.world, day);
     this.ai.onDay(day, {
       startResearch: (countryId, techId) => this.startResearch(countryId, techId),
       queueUnits: (countryId, unitId) => this.queueProduction(countryId, unitId),
@@ -406,10 +451,100 @@ export class Simulation {
   }
 
   /** Civilian construction through the shared production system. */
-  startConstruction(countryId: string, projectId: string, regionId: string): boolean {
+  startConstruction(
+    countryId: string,
+    projectId: string,
+    regionId: string,
+    priority: 'low' | 'normal' | 'high' = 'normal',
+  ): boolean {
     const country = this.world.get(countryId);
     if (!country) return false;
-    return this.production.enqueue(country, projectId, regionId, this.world.day).ok;
+    return this.production.enqueue(country, projectId, regionId, this.world.day, priority).ok;
+  }
+
+  cancelConstruction(countryId: string, orderId: string): boolean {
+    const country = this.world.get(countryId);
+    if (!country) return false;
+    return this.production.cancel(country, orderId, this.world.day);
+  }
+
+  setConstructionPriority(
+    countryId: string,
+    orderId: string,
+    priority: 'low' | 'normal' | 'high',
+  ): boolean {
+    const country = this.world.get(countryId);
+    if (!country) return false;
+    return this.production.reprioritise(country, orderId, priority);
+  }
+
+  setPolicy(countryId: string, policyId: string, enabled: boolean): boolean {
+    const country = this.world.get(countryId);
+    if (!country) return false;
+    return this.policies.setPolicy(country, policyId, enabled, this.world.day);
+  }
+
+  setMobilization(countryId: string, level: number): boolean {
+    const country = this.world.get(countryId);
+    if (!country) return false;
+    return this.policies.setMobilization(country, level, this.world.day);
+  }
+
+  establishTradeRoute(
+    countryId: string,
+    partnerId: string,
+    resource: string,
+    amount: number,
+    contract = false,
+  ): ReturnType<TradeSystem['createRoute']> {
+    return this.trade.createRoute(
+      this.world,
+      partnerId,
+      countryId,
+      resource,
+      amount,
+      this.world.day,
+      contract,
+    );
+  }
+
+  cancelTradeRoute(countryId: string, routeId: string): boolean {
+    return this.trade.cancelRoute(this.world, countryId, routeId, this.world.day);
+  }
+
+  queueMissile(countryId: string, type: MissileType): ReturnType<StrategicWeaponsSystem['queue']> {
+    const country = this.world.get(countryId);
+    if (!country) return { ok: false, reason: 'unknown-type' };
+    return this.strategicWeapons.queue(country, type, this.world.day);
+  }
+
+  startNavalInvasion(countryId: string, armyId: string, targetRegionId: string) {
+    const country = this.world.get(countryId);
+    if (!country) return { ok: false as const, reason: 'unknown-country' as const };
+    return this.maneuver.startInvasion(this.world, country, armyId, targetRegionId, this.world.day);
+  }
+
+  startAirlift(
+    countryId: string,
+    armyId: string,
+    targetRegionId: string,
+    kind: 'redeploy' | 'supply' = 'redeploy',
+  ) {
+    const country = this.world.get(countryId);
+    if (!country) return { ok: false as const, reason: 'unknown-country' as const };
+    return this.maneuver.startAirlift(
+      this.world,
+      country,
+      armyId,
+      targetRegionId,
+      kind,
+      this.world.day,
+    );
+  }
+
+  transportCapacity(countryId: string): number {
+    const country = this.world.get(countryId);
+    return country ? this.maneuver.transportCapacity(country) : 0;
   }
 
   /** Budget allocation, normalised so the three shares always sum to one. */
@@ -469,6 +604,43 @@ export class Simulation {
       recomputeModifiers(country);
       country.research.output = 0;
       syncMilitaryTotals(country);
+      country.modifiers = {
+        ...country.modifiers,
+        production: country.modifiers.production ?? 0,
+        income: country.modifiers.income ?? 0,
+        research: country.modifiers.research ?? 0,
+        attack: country.modifiers.attack ?? 0,
+        defence: country.modifiers.defence ?? 0,
+        supply: country.modifiers.supply ?? 0,
+        detection: country.modifiers.detection ?? 0,
+        resource: country.modifiers.resource ?? 0,
+        manpower: country.modifiers.manpower ?? 0,
+        logistics: country.modifiers.logistics ?? 0,
+        trade: country.modifiers.trade ?? 0,
+        stability: country.modifiers.stability ?? 0,
+        military: country.modifiers.military ?? 0,
+        civilian: country.modifiers.civilian ?? 0,
+      };
+      country.society ??= createSocietyState(country.population, country.economy.availableManpower);
+      country.trade ??= createTradeState();
+      country.intelligence ??= createIntelligenceState();
+      country.policy ??= createPolicyState();
+      country.logisticsState ??= createLogisticsState();
+      country.maneuver ??= createManeuverState();
+      for (const region of country.regions) {
+        region.workingPopulation ??= Math.round(region.population * 0.52);
+        region.militaryAgePopulation ??= Math.round(region.population * 0.23);
+        region.populationCapacity ??= Math.round(region.population * 1.55);
+        region.civilianIndustry ??= 0.25;
+        region.militaryIndustry ??= 0.12;
+        region.constructionCapacity ??= 0.55;
+        region.airportCapacity ??= 0;
+        region.portCapacity ??= 0;
+        region.extractionCapacity ??= 0.2;
+        region.development ??= region.infrastructure;
+        region.radar ??= 0;
+        region.fortification ??= 0;
+      }
       const warfare = (country as CountryState & { warfare?: unknown }).warfare;
       if (!warfare) {
         // Defensive repair for hand-built test states and pre-v6 payloads.
@@ -480,6 +652,7 @@ export class Simulation {
           missiles: {
             readiness: 0.5,
             stockpile: { tactical: 4, cruise: 2, ballistic: 1 },
+            production: [],
             cooldownUntilDay: 0,
             lastStrikeDay: 0,
             lastTargetRegionId: null,
@@ -487,6 +660,7 @@ export class Simulation {
           plans: [],
         };
       }
+      country.warfare.missiles.production ??= [];
     }
   }
 

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { QualityPreset } from '../core/config';
 import { DEFAULT_LOCALE, isLocaleCode, type LocaleCode } from '../i18n/types';
+import type { CampaignDifficulty } from '../game/types';
 
 export type GraphicsSetting = 'auto' | QualityPreset;
 export type PanelSide = 'left' | 'right';
@@ -12,6 +13,13 @@ interface SettingsState {
   persianNumerals: boolean;
   cityMarkers: boolean;
   panelSide: PanelSide;
+  /** 0..1 interface sound level. */
+  volume: number;
+  /** 0.85..1.25 interface scale. */
+  uiScale: number;
+  notifications: boolean;
+  autosave: boolean;
+  defaultDifficulty: CampaignDifficulty;
   /** True once the player has made an explicit language choice. */
   languageChosen: boolean;
   setLocale: (locale: LocaleCode) => void;
@@ -19,6 +27,11 @@ interface SettingsState {
   setPersianNumerals: (enabled: boolean) => void;
   setCityMarkers: (enabled: boolean) => void;
   setPanelSide: (side: PanelSide) => void;
+  setVolume: (volume: number) => void;
+  setUiScale: (scale: number) => void;
+  setNotifications: (enabled: boolean) => void;
+  setAutosave: (enabled: boolean) => void;
+  setDefaultDifficulty: (difficulty: CampaignDifficulty) => void;
   reset: () => void;
 }
 
@@ -28,6 +41,11 @@ const defaults = {
   persianNumerals: true,
   cityMarkers: true,
   panelSide: 'left' as PanelSide,
+  volume: 0.6,
+  uiScale: 1,
+  notifications: true,
+  autosave: true,
+  defaultDifficulty: 'standard' as CampaignDifficulty,
   languageChosen: false,
 };
 
@@ -43,6 +61,11 @@ export const useSettingsStore = create<SettingsState>()(
       setPersianNumerals: (persianNumerals) => set({ persianNumerals }),
       setCityMarkers: (cityMarkers) => set({ cityMarkers }),
       setPanelSide: (panelSide) => set({ panelSide }),
+      setVolume: (volume) => set({ volume: Math.max(0, Math.min(1, volume)) }),
+      setUiScale: (scale) => set({ uiScale: Math.max(0.85, Math.min(1.25, scale)) }),
+      setNotifications: (notifications) => set({ notifications }),
+      setAutosave: (autosave) => set({ autosave }),
+      setDefaultDifficulty: (defaultDifficulty) => set({ defaultDifficulty }),
       reset: () => set({ ...defaults, languageChosen: true }),
     }),
     {
@@ -54,6 +77,11 @@ export const useSettingsStore = create<SettingsState>()(
         persianNumerals: state.persianNumerals,
         cityMarkers: state.cityMarkers,
         panelSide: state.panelSide,
+        volume: state.volume,
+        uiScale: state.uiScale,
+        notifications: state.notifications,
+        autosave: state.autosave,
+        defaultDifficulty: state.defaultDifficulty,
         languageChosen: state.languageChosen,
       }),
     },

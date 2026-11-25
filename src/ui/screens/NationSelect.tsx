@@ -5,6 +5,7 @@ import { localize } from '../../i18n/types';
 import type { CampaignDifficulty } from '../../game/types';
 import type { MessageKey } from '../../i18n/locales/en';
 import { useI18n } from '../hooks/useI18n';
+import { useSettingsStore } from '../../state/settingsStore';
 import { Flag } from '../components/Flag';
 import { CountryDossier } from '../components/CountryDossier';
 
@@ -19,7 +20,8 @@ export function NationSelect() {
   const startCampaign = useAppStore((state) => state.startCampaign);
   const goToMenu = useAppStore((state) => state.goToMenu);
   const [query, setQuery] = useState('');
-  const [difficulty, setDifficulty] = useState<CampaignDifficulty>('standard');
+  const defaultDifficulty = useSettingsStore((state) => state.defaultDifficulty);
+  const [difficulty, setDifficulty] = useState<CampaignDifficulty>(defaultDifficulty);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();

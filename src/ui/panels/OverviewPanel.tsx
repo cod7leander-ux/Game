@@ -19,6 +19,25 @@ export function OverviewPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
         </div>
       </header>
 
+      <div className="diplomacy-summary">
+        <div>
+          <span>{tr('society.population')}</span>
+          <strong>{compact(snapshot.society.population)}</strong>
+        </div>
+        <div>
+          <span>{tr('society.manpowerPool')}</span>
+          <strong>{compact(snapshot.society.manpowerPool * 1000)}</strong>
+        </div>
+        <div>
+          <span>{tr('trade.routes')}</span>
+          <strong>{n(snapshot.trade.routes.length)}</strong>
+        </div>
+        <div>
+          <span>{tr('situation.active')}</span>
+          <strong>{n(snapshot.situations.filter((entry) => entry.active).length)}</strong>
+        </div>
+      </div>
+
       <dl className="data-list">
         <div>
           <dt>{tr('overview.government')}</dt>
@@ -105,6 +124,37 @@ export function OverviewPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
           <ul className="alert-list">
             {snapshot.warnings.map((warning) => (
               <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="sub-section">
+        <header className="sub-section__header">
+          <h3>{tr('situation.title')}</h3>
+          <span className="count">
+            {snapshot.situations.filter((entry) => entry.active).length}
+          </span>
+        </header>
+        {snapshot.situations.length === 0 ? (
+          <p className="muted">{tr('situation.none')}</p>
+        ) : (
+          <ul className="stack-list">
+            {snapshot.situations.map((entry) => (
+              <li key={entry.id}>
+                <div className="stack-list__row">
+                  <strong>{entry.name}</strong>
+                  <span className={`chip ${entry.active ? 'chip--danger' : 'chip--muted'}`}>
+                    {tr(`situation.severity.${entry.severity}` as MessageKey)}
+                  </span>
+                </div>
+                <p className="muted">{entry.description}</p>
+                <span className="muted">
+                  {entry.active
+                    ? tr('situation.ends', { day: n(entry.endDay) })
+                    : `${tr('common.day')} ${n(entry.startDay)} → ${n(entry.endDay)}`}
+                </span>
+              </li>
             ))}
           </ul>
         )}

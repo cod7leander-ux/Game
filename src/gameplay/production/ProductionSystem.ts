@@ -15,7 +15,8 @@ import type { ConstructionOrder, InfrastructureProject } from './types';
  * effects (supply capacity, output, infrastructure), which is how the map
  * visibly develops over a long campaign.
  */
-const MAX_CONSTRUCTION_QUEUE = 3;
+const MAX_CONSTRUCTION_QUEUE = 6;
+const PRIORITY_WEIGHT = { low: 0.6, normal: 1, high: 1.6 } as const;
 
 export const canAffordProject = (country: CountryState, project: InfrastructureProject): boolean => {
   for (const [resource, amount] of Object.entries(project.cost)) {
@@ -60,6 +61,7 @@ export class ProductionSystem {
     projectId: string,
     regionId: string,
     day: number,
+    priority: ConstructionOrder['priority'] = 'normal',
   ): ConstructionResult {
     const project = getProject(projectId);
     if (!project) return { ok: false, reason: 'unknownProject' };
@@ -86,6 +88,8 @@ export class ProductionSystem {
       id: `${projectId}-${regionId}-${day}-${country.production.construction.length}`,
       projectId,
       regionId,
+      category: project.category,
+      priority,
       daysRemaining: project.days,
       totalDays: project.days,
       startedDay: day,
@@ -101,30 +105,84 @@ export class ProductionSystem {
     return { ok: true, order };
   }
 
-  /** Advances construction using the infrastructure share of industry. */
+  /** Advances every queued project in parallel, weighted by priority. */
   tick(country: CountryState, day: number): void {
-    if (country.occupierId) return;
-    const order = country.production.construction[0];
-    if (!order) return;
-    const project = getProject(order.projectId);
-    if (!project) {
-      country.production.construction.shift();
+    if (country.occupierId || country.production.construction.length === 0) return;
+    const active = country.production.construction.filter((order) => getProject(order.projectId));
+    if (active.length === 0) {
+      country.production.construction = [];
       return;
     }
-
-    const rate =
+    const totalWeight = active.reduce(
+      (sum, order) => sum + PRIORITY_WEIGHT[order.priority ?? 'normal'],
+      0,
+    );
+    const baseRate =
       country.economy.industrialCapacity *
       country.economy.allocation.infrastructure *
-      0.9 *
-      (1 + country.modifiers.production) *
+      0.55 *
+      (1 + country.modifiers.production + (country.modifiers.civilian ?? 0)) *
       (0.7 + country.stability * 0.3) *
-      (1 - clamp01(country.unrest) * 0.3);
+      (1 - clamp01(country.unrest) * 0.3) *
+      (1 - clamp01(country.trade?.disruption ?? 0) * 0.2);
 
-    order.daysRemaining -= Math.max(0.15, rate);
-    if (order.daysRemaining > 0) return;
+    const completed: ConstructionOrder[] = [];
+    for (const order of active) {
+      const weight = PRIORITY_WEIGHT[order.priority ?? 'normal'];
+      // Each project runs on its own region's construction capacity, so
+      // building in a developed region is materially faster.
+      const region = country.regions.find((entry) => entry.id === order.regionId);
+      const capacity = region?.constructionCapacity ?? 0.5;
+      const rate = Math.max(
+        0.08,
+        (baseRate * capacity * weight) / Math.max(1, totalWeight),
+      );
+      order.daysRemaining -= rate;
+      if (order.daysRemaining <= 0) completed.push(order);
+    }
+    for (const order of completed) {
+      const project = getProject(order.projectId)!;
+      this.complete(country, order, project, day);
+    }
+    if (completed.length > 0) {
+      const ids = new Set(completed.map((order) => order.id));
+      country.production.construction = country.production.construction.filter(
+        (order) => !ids.has(order.id),
+      );
+    }
+  }
 
-    this.complete(country, order, project, day);
-    country.production.construction.shift();
+  /** Cancels a project and recovers part of its material cost. */
+  cancel(country: CountryState, orderId: string, day: number): boolean {
+    const index = country.production.construction.findIndex((order) => order.id === orderId);
+    if (index < 0) return false;
+    const order = country.production.construction[index];
+    const project = getProject(order.projectId);
+    if (project) {
+      for (const [resource, amount] of Object.entries(project.cost)) {
+        country.economy.resources[resource as ResourceId] += (amount ?? 0) * 0.4;
+      }
+    }
+    country.production.construction.splice(index, 1);
+    this.events.emit({
+      type: 'constructionCancelled',
+      countryId: country.id,
+      projectId: order.projectId,
+      regionId: order.regionId,
+      day,
+    });
+    return true;
+  }
+
+  reprioritise(
+    country: CountryState,
+    orderId: string,
+    priority: ConstructionOrder['priority'],
+  ): boolean {
+    const order = country.production.construction.find((entry) => entry.id === orderId);
+    if (!order) return false;
+    order.priority = priority;
+    return true;
   }
 
   private complete(
@@ -138,6 +196,35 @@ export class ProductionSystem {
       region.infrastructure = clamp(region.infrastructure + (project.effects.infrastructure ?? 0), 0, 1);
       region.supplyHub = clamp(region.supplyHub + (project.effects.supply ?? 0), 0, 1.5);
       region.industryBonus = clamp(region.industryBonus + (project.effects.industry ?? 0), 0, 1);
+      region.civilianIndustry = clamp01(
+        (region.civilianIndustry ?? 0.2) + (project.effects.civilianIndustry ?? 0),
+      );
+      region.militaryIndustry = clamp01(
+        (region.militaryIndustry ?? 0.1) + (project.effects.militaryIndustry ?? 0),
+      );
+      region.constructionCapacity = clamp(
+        (region.constructionCapacity ?? 0.5) + (project.effects.constructionCapacity ?? 0),
+        0.2,
+        1.8,
+      );
+      region.airportCapacity = clamp01(
+        (region.airportCapacity ?? 0) + (project.effects.airportCapacity ?? 0),
+      );
+      region.portCapacity = clamp01((region.portCapacity ?? 0) + (project.effects.portCapacity ?? 0));
+      region.radar = clamp01((region.radar ?? 0) + (project.effects.radar ?? 0));
+      region.fortification = clamp01(
+        (region.fortification ?? 0) + (project.effects.fortification ?? 0),
+      );
+      region.populationCapacity = Math.round(
+        (region.populationCapacity ?? region.population * 1.5) *
+          (1 + (project.effects.populationCapacity ?? 0)),
+      );
+      region.development = clamp01(
+        (region.infrastructure * 0.45 +
+          (region.civilianIndustry ?? 0) * 0.25 +
+          (region.militaryIndustry ?? 0) * 0.15 +
+          (region.constructionCapacity ?? 0) * 0.15),
+      );
       region.damage = Math.max(0, region.damage - 0.1);
       if (project.effects.resource) {
         for (const [resource, amount] of Object.entries(project.effects.resource)) {
