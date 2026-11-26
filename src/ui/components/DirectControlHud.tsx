@@ -3,6 +3,7 @@ import type { DirectControlView } from '../../game/types';
 import type { DirectInput } from '../../gameplay/direct/types';
 import { useAppStore } from '../../state/appStore';
 import { useI18n } from '../hooks/useI18n';
+import { DirectRadar } from './DirectRadar';
 import './direct-control.css';
 
 /**
@@ -255,6 +256,8 @@ export function DirectControlHud({ direct }: { direct: DirectControlView | null 
             </ul>
           )}
         </div>
+
+        <DirectRadar direct={direct} />
 
         <div className="direct-hud__contacts">
           <span className="direct-hud__label">{tr('direct.contacts')}</span>

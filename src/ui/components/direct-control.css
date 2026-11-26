@@ -336,3 +336,67 @@
     text-align: start;
   }
 }
+
+/* ── Tactical radar ───────────────────────────────────────────────────────── */
+
+.direct-radar {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(6, 11, 17, 0.45);
+}
+
+.direct-radar svg {
+  width: 112px;
+  height: 112px;
+}
+
+.direct-radar__scope {
+  fill: rgba(9, 30, 40, 0.55);
+  stroke: rgba(127, 216, 255, 0.35);
+  stroke-width: 0.8;
+}
+
+.direct-radar__ring,
+.direct-radar__axis {
+  fill: none;
+  stroke: rgba(127, 216, 255, 0.16);
+  stroke-width: 0.6;
+}
+
+.direct-radar__cardinal {
+  fill: var(--cyan);
+  font-size: 8px;
+  text-anchor: middle;
+  opacity: 0.75;
+}
+
+.direct-radar__contact {
+  fill: #ffb454;
+}
+
+.direct-radar__contact.is-target {
+  fill: #ff6a5c;
+}
+
+.direct-radar__lock {
+  fill: none;
+  stroke: #ff6a5c;
+  stroke-width: 1;
+  opacity: 0.8;
+}
+
+.direct-radar__self {
+  fill: var(--green);
+  stroke: #04120c;
+  stroke-width: 0.6;
+}
+
+.direct-radar__range {
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  color: var(--mute);
+}

@@ -120,6 +120,14 @@ const sceneDistanceBetween = (
   return Math.hypot(dLon, dLat) * GAME.globeRadius;
 };
 
+/** Bearing in radians clockwise from north, in the local tangent plane. */
+const bearingBetween = (aLon: number, aLat: number, bLon: number, bLat: number): number => {
+  const midLat = ((aLat + bLat) / 2) * DEG_TO_RAD;
+  const dLon = (bLon - aLon) * DEG_TO_RAD * Math.cos(midLat);
+  const dLat = (bLat - aLat) * DEG_TO_RAD;
+  return Math.atan2(dLon, dLat);
+};
+
 /** Local tactical distance in kilometres, matching weapon-range compression. */
 const localDistanceKm = (sceneUnits: number): number =>
   sceneUnits / (DIRECT.weaponScale * 1000);
@@ -208,6 +216,8 @@ const buildRegionView = (
     id: city.id,
     name: localize(city.name, locale),
     regionId: city.regionId,
+    lon: city.position[0],
+    lat: city.position[1],
     population: city.population,
     strategicValue: city.strategicValue,
     industrialValue: city.industrialValue,
@@ -255,12 +265,17 @@ const buildRegionView = (
       level: airport.level,
       capacity: airport.capacity,
       military: airport.military,
+      lon: airport.position[0],
+      lat: airport.position[1],
     })),
     ports: regionPorts(region.id).map((port) => ({
       id: port.id,
       name: localize(port.name, locale),
       level: port.level,
       capacity: port.capacity,
+      navalAccess: port.navalAccess,
+      lon: port.position[0],
+      lat: port.position[1],
     })),
     neighbours: (definition?.borders ?? [])
       .map((id) => {
@@ -1161,6 +1176,7 @@ const buildDirectView = (
       distanceKm: localDistanceKm(
         sceneDistanceBetween(entity.lon, entity.lat, contact.lon, contact.lat),
       ),
+      bearing: bearingBetween(entity.lon, entity.lat, contact.lon, contact.lat),
       healthRatio: contact.maxHealth > 0 ? Math.max(0, contact.health / contact.maxHealth) : 0,
       targetable,
     };

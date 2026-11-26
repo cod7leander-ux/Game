@@ -139,7 +139,9 @@ export class CapitalLayer {
     this.poles.count = Math.min(limit, CAPITALS.length);
     this.topBands.count = this.poles.count;
     this.bottomBands.count = this.poles.count;
-    this.object.visible = altitude < 5.4;
+    // At street level the landmark and blocks represent the capital; a
+    // country-scaled flag would dwarf them.
+    this.object.visible = altitude < 5.4 && altitude >= 0.03;
 
     // Markers grow with the camera so a flag stays a few pixels wide at every
     // scale instead of vanishing in the global view and dwarfing the country

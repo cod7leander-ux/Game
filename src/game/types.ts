@@ -68,8 +68,24 @@ export interface RegionView {
   development: number;
   radar: number;
   fortification: number;
-  airports: Array<{ id: string; name: string; level: number; capacity: number; military: boolean }>;
-  ports: Array<{ id: string; name: string; level: number; capacity: number }>;
+  airports: Array<{
+    id: string;
+    name: string;
+    level: number;
+    capacity: number;
+    military: boolean;
+    lon: number;
+    lat: number;
+  }>;
+  ports: Array<{
+    id: string;
+    name: string;
+    level: number;
+    capacity: number;
+    navalAccess: boolean;
+    lon: number;
+    lat: number;
+  }>;
   neighbours: string[];
   armies: Array<{ id: string; name: string; units: number }>;
   occupiedBy: string | null;
@@ -88,6 +104,9 @@ export interface CityView {
   id: string;
   name: string;
   regionId: string;
+  /** Geographic centre, so the city can be framed in the 3D world. */
+  lon: number;
+  lat: number;
   population: number;
   strategicValue: number;
   industrialValue: number;
@@ -358,6 +377,8 @@ export interface DirectContactView {
   countryName: string;
   archetype: UnitArchetype;
   distanceKm: number;
+  /** Bearing from the controlled unit to the contact, radians clockwise from north. */
+  bearing: number;
   healthRatio: number;
   targetable: boolean;
 }

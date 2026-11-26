@@ -3,14 +3,17 @@ import {
   BufferAttribute,
   BufferGeometry,
   Color,
+  CylinderGeometry,
   DynamicDrawUsage,
   Group,
   InstancedMesh,
   LineBasicMaterial,
   LineSegments,
   Matrix4,
+  Mesh,
   MeshStandardMaterial,
   Object3D,
+  Raycaster,
   Vector3,
 } from 'three';
 import { GAME } from '../core/config';
@@ -30,7 +33,8 @@ import { surfaceReliefAt } from './globeGeography';
  */
 const R = GAME.globeRadius;
 const DEG = Math.PI / 180;
-const MAX_BUILDINGS = 3200;
+const UP = new Vector3(0, 1, 0);
+const MAX_BUILDINGS = 5200;
 
 const toXYZ = (lon: number, lat: number, radius: number, out: Vector3): Vector3 => {
   const phi = lat * DEG;
@@ -109,10 +113,12 @@ const buildCorridorMesh = (pairs: CorridorPair[], offset: number, color: string,
 };
 
 const BUILDING_TIERS: Record<number, { count: number; height: number; spread: number }> = {
-  1: { count: 16, height: 0.0034, spread: 0.011 },
-  2: { count: 9, height: 0.0022, spread: 0.008 },
-  3: { count: 4, height: 0.0014, spread: 0.0055 },
+  1: { count: 48, height: 0.0055, spread: 0.021 },
+  2: { count: 24, height: 0.004, spread: 0.015 },
+  3: { count: 12, height: 0.0028, spread: 0.01 },
 };
+
+const FACADE_COLORS = ['#cfc7b4', '#9aa4ae', '#e0d3b0', '#b7a98e', '#d6d9dc'];
 
 export class SurfaceDetailLayer {
   readonly object = new Group();
@@ -133,6 +139,27 @@ export class SurfaceDetailLayer {
     metalness: 0.08,
   });
   private readonly buildings: InstancedMesh;
+  private readonly landmarks: InstancedMesh;
+  private readonly streetGeometry = new BufferGeometry();
+  private readonly streetMaterial = new LineBasicMaterial({
+    color: '#c9b98e',
+    transparent: true,
+    opacity: 0.32,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  private readonly streets: LineSegments;
+  private surface: Mesh | null = null;
+  private readonly raycaster = new Raycaster();
+  private readonly rayOrigin = new Vector3();
+  private readonly rayDirection = new Vector3();
+  private readonly landmarkMaterial = new MeshStandardMaterial({
+    color: '#e9dfc8',
+    emissive: new Color('#ffbe63'),
+    emissiveIntensity: 0.55,
+    roughness: 0.55,
+    metalness: 0.25,
+  });
   private readonly dummy = new Object3D();
   private readonly basis = new Matrix4();
   private readonly normal = new Vector3();
@@ -145,7 +172,7 @@ export class SurfaceDetailLayer {
     this.object.add(this.roads.lines, this.rail.lines);
 
     this.buildings = new InstancedMesh(
-      new BoxGeometry(0.0007, 1, 0.0007),
+      new BoxGeometry(0.0021, 1, 0.0021),
       this.buildingMaterial,
       MAX_BUILDINGS,
     );
@@ -154,6 +181,102 @@ export class SurfaceDetailLayer {
     this.buildings.renderOrder = 4;
     this.buildBuildings();
     this.object.add(this.buildings);
+
+    // A single landmark tower per capital gives every major city a silhouette
+    // that reads as a city at close range, like the reference skyline.
+    const capitals = GEO_CITIES.filter((city) => city.isCapital);
+    this.landmarks = new InstancedMesh(
+      new CylinderGeometry(0.0004, 0.0014, 0.03, 8),
+      this.landmarkMaterial,
+      capitals.length,
+    );
+    this.landmarks.frustumCulled = false;
+    this.landmarks.renderOrder = 5;
+    this.buildLandmarks(capitals);
+    this.object.add(this.landmarks);
+
+    this.streets = new LineSegments(this.streetGeometry, this.streetMaterial);
+    this.streets.frustumCulled = false;
+    this.streets.renderOrder = 3;
+    this.buildStreets();
+    this.object.add(this.streets);
+  }
+
+  /**
+   * Snaps the city fabric to the rendered terrain mesh. Analytic relief and the
+   * triangulated surface diverge by more than a building is tall at close zoom,
+   * so the city is ray-cast onto the actual surface once after binding.
+   */
+  bindSurface(surface: Mesh): void {
+    this.surface = surface;
+    this.buildBuildings();
+    this.buildLandmarks(GEO_CITIES.filter((city) => city.isCapital));
+    this.buildStreets();
+  }
+
+  /** Street grid on the local tangent plane, so cities read at close range. */
+  private buildStreets(): void {
+    const positions: number[] = [];
+    for (const city of GEO_CITIES) {
+      const tier = BUILDING_TIERS[cityTier(city)] ?? BUILDING_TIERS[3];
+      const phi = city.position[1] * DEG;
+      const lambda = city.position[0] * DEG;
+      const cosPhi = Math.cos(phi);
+      this.normal.set(cosPhi * Math.sin(lambda), Math.sin(phi), cosPhi * Math.cos(lambda)).normalize();
+      this.east.set(this.normal.z, 0, -this.normal.x).normalize();
+      this.north.crossVectors(this.normal, this.east).normalize();
+      const relief = this.meshRelief(city.countryId, city.position[0], city.position[1]);
+      const centre = this.point
+        .set(this.normal.x, this.normal.y, this.normal.z)
+        .multiplyScalar(R + relief + 0.00004)
+        .clone();
+      const half = tier.spread;
+      const steps = 3;
+      for (let line = -steps; line <= steps; line += 1) {
+        const offset = (line / steps) * half;
+        const a = centre.clone().addScaledVector(this.east, offset).addScaledVector(this.north, -half);
+        const b = centre.clone().addScaledVector(this.east, offset).addScaledVector(this.north, half);
+        const c = centre.clone().addScaledVector(this.north, offset).addScaledVector(this.east, -half);
+        const d = centre.clone().addScaledVector(this.north, offset).addScaledVector(this.east, half);
+        positions.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
+      }
+    }
+    this.streetGeometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
+    this.streetGeometry.computeBoundingSphere();
+  }
+
+  /** Surface radius at a city, taken from the render mesh when available. */
+  private meshRelief(countryId: string, lon: number, lat: number): number {
+    const analytic = surfaceReliefAt(countryId, lon, lat);
+    if (!this.surface) return analytic;
+    const phi = lat * DEG;
+    const lambda = lon * DEG;
+    const cosPhi = Math.cos(phi);
+    this.normal.set(cosPhi * Math.sin(lambda), Math.sin(phi), cosPhi * Math.cos(lambda)).normalize();
+    this.rayOrigin.copy(this.normal).multiplyScalar(R * 1.25);
+    this.rayDirection.copy(this.normal).multiplyScalar(-1);
+    this.raycaster.set(this.rayOrigin, this.rayDirection);
+    const hit = this.raycaster.intersectObject(this.surface, false)[0];
+    return hit ? hit.point.length() - R : analytic;
+  }
+
+  private buildLandmarks(capitals: typeof GEO_CITIES): void {
+    capitals.forEach((city, index) => {
+      const phi = city.position[1] * DEG;
+      const lambda = city.position[0] * DEG;
+      const cosPhi = Math.cos(phi);
+      this.normal.set(cosPhi * Math.sin(lambda), Math.sin(phi), cosPhi * Math.cos(lambda)).normalize();
+      const relief = this.meshRelief(city.countryId, city.position[0], city.position[1]);
+      this.dummy.position
+        .set(this.normal.x, this.normal.y, this.normal.z)
+        .multiplyScalar(R + relief)
+        .addScaledVector(this.normal, 0.016);
+      this.dummy.quaternion.setFromUnitVectors(UP, this.normal);
+      this.dummy.scale.set(1, 1, 1);
+      this.dummy.updateMatrix();
+      this.landmarks.setMatrixAt(index, this.dummy.matrix);
+    });
+    this.landmarks.instanceMatrix.needsUpdate = true;
   }
 
   private buildBuildings(): void {
@@ -168,7 +291,7 @@ export class SurfaceDetailLayer {
       this.east.set(this.normal.z, 0, -this.normal.x).normalize();
       this.north.crossVectors(this.normal, this.east).normalize();
       this.basis.makeBasis(this.east, this.normal, this.north);
-      const relief = surfaceReliefAt(city.countryId, city.position[0], city.position[1]);
+      const relief = this.meshRelief(city.countryId, city.position[0], city.position[1]);
 
       for (let block = 0; block < tier.count; block += 1) {
         if (index >= MAX_BUILDINGS) break;
@@ -188,7 +311,14 @@ export class SurfaceDetailLayer {
         this.dummy.scale.set(1, height, 1);
         this.dummy.updateMatrix();
         this.buildings.setMatrixAt(index, this.dummy.matrix);
-        this.buildings.setColorAt(index, this.color.set(block % 3 === 0 ? design.colors[2] : design.colors[0]));
+        this.buildings.setColorAt(
+          index,
+          this.color.set(
+            block % 7 === 0
+              ? design.colors[0]
+              : FACADE_COLORS[(hash >>> 12) % FACADE_COLORS.length],
+          ),
+        );
         index += 1;
       }
     }
@@ -205,6 +335,8 @@ export class SurfaceDetailLayer {
     this.roads.lines.visible = direct || altitude < 0.16;
     this.rail.lines.visible = direct || altitude < 0.075;
     this.buildings.visible = direct || altitude < 0.085;
+    this.landmarks.visible = direct || altitude < 0.05;
+    this.streets.visible = direct || altitude < 0.045;
   }
 
   dispose(): void {
@@ -215,5 +347,10 @@ export class SurfaceDetailLayer {
     this.buildings.geometry.dispose();
     this.buildings.dispose();
     this.buildingMaterial.dispose();
+    this.landmarks.geometry.dispose();
+    this.landmarks.dispose();
+    this.landmarkMaterial.dispose();
+    this.streetGeometry.dispose();
+    this.streetMaterial.dispose();
   }
 }

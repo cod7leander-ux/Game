@@ -15,6 +15,10 @@ export function TerritoryPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
   const { t: tr, n, percent, decimal, compact } = useI18n();
   const selectRegion = useAppStore((state) => state.selectRegion);
   const focusRegionCamera = useAppStore((state) => state.focusRegionCamera);
+  const selectCity = useAppStore((state) => state.selectCity);
+  const selectBase = useAppStore((state) => state.selectBase);
+  const selectedCityId = useAppStore((state) => state.selectedCityId);
+  const selectedBase = useAppStore((state) => state.selectedBase);
   const selected =
     snapshot.inspectedRegion ??
     snapshot.regions.find((region) => region.selected) ??
@@ -164,16 +168,25 @@ export function TerritoryPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
           {selected.cities.length === 0 ? (
             <p className="muted">{tr('territory.noCities')}</p>
           ) : (
-            <ul className="alert-list">
+            <ul className="city-list">
               {selected.cities.map((city) => (
                 <li key={city.id}>
-                  {city.name}
-                  <span className="muted">
-                    {' '}
-                    · {compact(city.population)}
-                    {city.hasAirport ? ` · ${tr('territory.airport')}` : ''}
-                    {city.hasPort ? ` · ${tr('territory.port')}` : ''}
-                  </span>
+                  <button
+                    type="button"
+                    className={`city-row ${selectedCityId === city.id ? 'is-active' : ''}`}
+                    onClick={() => selectCity(city.id)}
+                  >
+                    <span className="city-row__name">
+                      {city.name}
+                      {city.isCapital && <em className="chip chip--muted">{tr('territory.capital')}</em>}
+                    </span>
+                    <span className="muted">
+                      {compact(city.population)}
+                      {city.hasAirport ? ` · ${tr('territory.airport')}` : ''}
+                      {city.hasPort ? ` · ${tr('territory.port')}` : ''}
+                    </span>
+                    <span className="city-row__view">{tr('city.open')}</span>
+                  </button>
                 </li>
               ))}
             </ul>
@@ -184,14 +197,28 @@ export function TerritoryPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
               <h4 className="sub-title">{tr('territory.infrastructurePoints')}</h4>
               <div className="project-card__cost">
                 {selected.airports.map((airport) => (
-                  <span key={airport.id} className="chip">
+                  <button
+                    key={airport.id}
+                    type="button"
+                    className={`chip chip--action ${
+                      selectedBase?.kind === 'airport' && selectedBase.id === airport.id ? 'is-active' : ''
+                    }`}
+                    onClick={() => selectBase('airport', airport.id)}
+                  >
                     {airport.name} · L{n(airport.level)}
-                  </span>
+                  </button>
                 ))}
                 {selected.ports.map((port) => (
-                  <span key={port.id} className="chip">
+                  <button
+                    key={port.id}
+                    type="button"
+                    className={`chip chip--action ${
+                      selectedBase?.kind === 'port' && selectedBase.id === port.id ? 'is-active' : ''
+                    }`}
+                    onClick={() => selectBase('port', port.id)}
+                  >
                     {port.name} · L{n(port.level)}
-                  </span>
+                  </button>
                 ))}
               </div>
             </>

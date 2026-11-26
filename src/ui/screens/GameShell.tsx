@@ -10,6 +10,9 @@ import { NotificationsDrawer } from '../components/NotificationsDrawer';
 import { BattleHud } from '../components/BattleHud';
 import { DirectControlHud } from '../components/DirectControlHud';
 import { WorldUnitHud } from '../components/WorldUnitHud';
+import { StrategicMap } from '../components/StrategicMap';
+import { CityDossier } from '../components/CityDossier';
+import { BaseDossier } from '../components/BaseDossier';
 import { relationStatusOf } from '../components/relation-utils';
 
 export function GameShell() {
@@ -21,6 +24,9 @@ export function GameShell() {
   const panelSide = useSettingsStore((state) => state.panelSide);
   const showNotifications = useSettingsStore((state) => state.notifications);
   const selectedCountryId = useAppStore((state) => state.selectedCountryId);
+  const selectedRegionId = useAppStore((state) => state.selectedRegionId);
+  const selectedCityId = useAppStore((state) => state.selectedCityId);
+  const selectedBase = useAppStore((state) => state.selectedBase);
   const brief = useAppStore((state) => state.inspectedBrief);
   const openDialog = useAppStore((state) => state.openDialog);
   const togglePause = useAppStore((state) => state.togglePause);
@@ -107,7 +113,10 @@ export function GameShell() {
         </button>
       </div>
 
-      {inspectingOther && brief && (
+      {!snapshot.direct && <CityDossier snapshot={snapshot} />}
+      {!snapshot.direct && <BaseDossier snapshot={snapshot} />}
+
+      {inspectingOther && brief && !snapshot.direct && !selectedCityId && !selectedBase && (
         <aside className={`inspector ${panelSide === 'left' ? 'inspector--right' : 'inspector--left'}`}>
           <div className="panel panel--dossier">
             <button
@@ -125,6 +134,12 @@ export function GameShell() {
       )}
 
       <MapLayerBar />
+
+      <StrategicMap
+        snapshot={snapshot}
+        selectedRegionId={selectedRegionId}
+        hidden={Boolean(snapshot.direct)}
+      />
 
       <div className="game-shell__hint panel">
         <span>{tr('hud.zoomHint')}</span>

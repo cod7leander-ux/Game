@@ -1,6 +1,6 @@
 import { PerspectiveCamera, Vector3 } from 'three';
 import { CAMERA, GAME } from '../core/config';
-import { clamp, damp, DEG2RAD, shortestAngle, wrapLongitude } from '../core/math';
+import { clamp, damp, DEG2RAD, RAD2DEG, shortestAngle, wrapLongitude } from '../core/math';
 import type { DirectCameraTarget } from '../gameplay/direct/types';
 
 /**
@@ -163,8 +163,11 @@ export class CameraRig {
       // exactly where the player was flying or driving.
       this.targetLon = this.directTarget.lon;
       this.targetLat = clamp(this.directTarget.lat, -84, 84);
+      // Longitudes are degrees; the angle helper works in radians.
       this.lon = wrapLongitude(
-        this.lon + shortestAngle(this.lon, this.targetLon) * (1 - Math.exp(-18 * dt)),
+        this.lon +
+          shortestAngle(this.lon * DEG2RAD, this.targetLon * DEG2RAD) * RAD2DEG *
+            (1 - Math.exp(-18 * dt)),
       );
       this.lat = damp(this.lat, this.targetLat, 22, dt);
       this.directBlend = damp(this.directBlend, 1, 7, dt);
@@ -173,7 +176,9 @@ export class CameraRig {
         this.targetLon = wrapLongitude(this.targetLon + this.autoRotateSpeed * dt);
       }
       this.lon = wrapLongitude(
-        this.lon + shortestAngle(this.lon, this.targetLon) * (1 - Math.exp(-CAMERA.damping * 0.6 * dt)),
+        this.lon +
+          shortestAngle(this.lon * DEG2RAD, this.targetLon * DEG2RAD) * RAD2DEG *
+            (1 - Math.exp(-CAMERA.damping * 0.6 * dt)),
       );
       this.lat = damp(this.lat, this.targetLat, CAMERA.damping * 0.6, dt);
       this.altitude = damp(this.altitude, this.targetAltitude, CAMERA.damping, dt);
@@ -213,7 +218,9 @@ export class CameraRig {
     const dirZ = nz * cosTilt + (this.north.z * cosHeading + this.east.z * sinHeading) * sinTilt;
 
     const altitude = this.directTarget ? this.altitude : this.altitude;
-    const distance = R * (altitude + 0.02);
+    // A small clearance keeps the camera above the surface without holding it
+    // too far away to see a city block at the close end of the ladder.
+    const distance = R * (altitude + 0.002);
     this.position.set(
       this.focus.x + dirX * distance,
       this.focus.y + dirY * distance,

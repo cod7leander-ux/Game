@@ -19,10 +19,15 @@ export function App() {
   const selectedCountryId = useAppStore((state) => state.selectedCountryId);
   const hoveredCountryId = useAppStore((state) => state.hoveredCountryId);
   const session = useAppStore((state) => state.session);
+  const snapshot = useAppStore((state) => state.snapshot);
   const mapArmies = useAppStore((state) => state.snapshot?.mapArmies);
   const mapRegions = useAppStore((state) => state.snapshot?.mapRegions);
   const mapLayer = useAppStore((state) => state.mapLayer);
   const selectedRegionId = useAppStore((state) => state.selectedRegionId);
+  const selectedCityId = useAppStore((state) => state.selectedCityId);
+  const cityFocus = useAppStore((state) => state.cityFocus);
+  const baseFocus = useAppStore((state) => state.baseFocus);
+  const pointFocus = useAppStore((state) => state.pointFocus);
   const selectRegion = useAppStore((state) => state.selectRegion);
   const setPanelTab = useAppStore((state) => state.setPanelTab);
   const regionFocus = useAppStore((state) => state.regionFocus);
@@ -87,12 +92,28 @@ export function App() {
           tone: 'cyan',
         });
       }
+      const city = selectedCityId
+        ? [
+            ...(snapshot?.inspectedRegion?.cities ?? []),
+            ...(snapshot?.regions.flatMap((entry) => entry.cities) ?? []),
+          ].find((entry) => entry.id === selectedCityId)
+        : undefined;
+      if (city) {
+        out.push({
+          id: `city-${city.id}`,
+          lon: city.lon,
+          lat: city.lat,
+          title: city.name,
+          subtitle: city.isCapital ? tr('territory.capital') : undefined,
+          tone: 'gold',
+        });
+      }
     } else {
       push(hoveredCountryId, 'cyan');
       if (selectedCountryId !== hoveredCountryId) push(selectedCountryId, 'gold');
     }
     return out;
-  }, [phase, session, selectedCountryId, hoveredCountryId, selectedRegionId, mapRegions, locale]);
+  }, [phase, session, selectedCountryId, hoveredCountryId, selectedRegionId, selectedCityId, mapRegions, locale, snapshot, tr]);
 
   return (
     <div className="app-shell" data-phase={phase}>
@@ -105,6 +126,9 @@ export function App() {
         mapLayer={mapLayer}
         selectedRegionId={selectedRegionId}
         regionFocus={regionFocus}
+        cityFocus={cityFocus}
+        baseFocus={baseFocus}
+        pointFocus={pointFocus}
         onRegionClick={(regionId, countryId) => {
           if (phase !== 'game') return;
           selectRegion(regionId);

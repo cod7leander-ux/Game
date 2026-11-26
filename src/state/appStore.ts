@@ -14,6 +14,7 @@ import type { SaveSlotId, SaveSummary } from '../save/types';
 import type { FormationType } from '../gameplay/tactical/types';
 import type { DirectInput } from '../gameplay/direct/types';
 import { getUnit } from '../data/units';
+import { baseAnchor } from '../render/baseAnchors';
 import { localize } from '../i18n/types';
 import { useSettingsStore } from './settingsStore';
 import { translate } from '../i18n';
@@ -66,6 +67,33 @@ export interface RegionFocusRequest {
   nonce: number;
 }
 
+export interface CityFocusRequest {
+  cityId: string;
+  lon: number;
+  lat: number;
+  nonce: number;
+}
+
+export interface BaseFocusRequest {
+  kind: 'airport' | 'port';
+  id: string;
+  lon: number;
+  lat: number;
+  nonce: number;
+}
+
+export interface PointFocusRequest {
+  lon: number;
+  lat: number;
+  altitude: number;
+  nonce: number;
+}
+
+export interface SelectedBase {
+  kind: 'airport' | 'port';
+  id: string;
+}
+
 export interface Toast {
   id: number;
   message: string;
@@ -81,6 +109,9 @@ interface AppState {
   selectedCountryId: string | null;
   hoveredCountryId: string | null;
   selectedRegionId: string | null;
+  /** City or installation opened from the province inspector. */
+  selectedCityId: string | null;
+  selectedBase: SelectedBase | null;
   /** Strategic unit token selected in the 3D world. */
   selectedMapUnitId: string | null;
   mapLayer: MapLayerId;
@@ -95,6 +126,9 @@ interface AppState {
   battleFocus: BattleFocusRequest | null;
   armyFocus: ArmyFocusRequest | null;
   regionFocus: RegionFocusRequest | null;
+  cityFocus: CityFocusRequest | null;
+  baseFocus: BaseFocusRequest | null;
+  pointFocus: PointFocusRequest | null;
   pausedFromSpeed: 1 | 2 | 4 | 8;
 
   goToMenu: () => void;
@@ -110,10 +144,16 @@ interface AppState {
 
   selectCountry: (countryId: string | null, focusCamera?: boolean) => void;
   selectRegion: (regionId: string | null) => void;
+  selectCity: (cityId: string | null) => void;
+  selectBase: (kind: 'airport' | 'port', id: string) => void;
+  closeInspection: () => void;
   selectMapUnit: (tokenId: string | null) => void;
   hoverCountry: (countryId: string | null) => void;
   focusCountryCamera: (countryId: string) => void;
   focusRegionCamera: (regionId: string) => void;
+  focusCityCamera: (cityId: string) => void;
+  focusBaseCamera: (kind: 'airport' | 'port', id: string) => void;
+  focusPointCamera: (lon: number, lat: number, altitude?: number) => void;
   setMapLayer: (layer: MapLayerId) => void;
 
   startCampaign: (countryId: string, difficulty: CampaignDifficulty) => void;
@@ -206,6 +246,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
   selectedCountryId: null,
   hoveredCountryId: null,
   selectedRegionId: null,
+  selectedCityId: null,
+  selectedBase: null,
   selectedMapUnitId: null,
   mapLayer: 'political',
   inspectedBrief: null,
@@ -219,6 +261,9 @@ export const useAppStore = create<AppState>()((set, get) => ({
   battleFocus: null,
   armyFocus: null,
   regionFocus: null,
+  cityFocus: null,
+  baseFocus: null,
+  pointFocus: null,
   pausedFromSpeed: 1,
 
   goToMenu: () => set({ phase: 'menu', dialog: 'none', selectedCountryId: null, hoveredCountryId: null }),
@@ -300,8 +345,19 @@ export const useAppStore = create<AppState>()((set, get) => ({
   selectRegion: (regionId) => {
     const session = get().session;
     if (session) session.selectedRegionId = regionId;
-    set({ selectedRegionId: regionId, snapshot: session?.snapshot() ?? null });
+    set({
+      selectedRegionId: regionId,
+      selectedCityId: null,
+      selectedBase: null,
+      snapshot: session?.snapshot() ?? null,
+    });
   },
+
+  selectCity: (cityId) => set({ selectedCityId: cityId, selectedBase: null }),
+
+  selectBase: (kind, id) => set({ selectedBase: { kind, id }, selectedCityId: null }),
+
+  closeInspection: () => set({ selectedCityId: null, selectedBase: null }),
 
   selectMapUnit: (tokenId) => {
     const session = get().session;
@@ -321,6 +377,49 @@ export const useAppStore = create<AppState>()((set, get) => ({
     const [lon, lat] = normalisedCentroid(region);
     set({ regionFocus: { regionId, lon, lat, nonce: Date.now() + Math.random() } });
   },
+
+  focusCityCamera: (cityId) => {
+    const snapshot = get().snapshot;
+    if (!snapshot) return;
+    const city = [
+      ...(snapshot.inspectedRegion?.cities ?? []),
+      ...snapshot.regions.flatMap((region) => region.cities),
+    ].find((entry) => entry.id === cityId);
+    if (!city) return;
+    set({
+      selectedCityId: cityId,
+      selectedBase: null,
+      cityFocus: { cityId, lon: city.lon, lat: city.lat, nonce: Date.now() + Math.random() },
+    });
+  },
+
+  focusBaseCamera: (kind, id) => {
+    const snapshot = get().snapshot;
+    if (!snapshot) return;
+    const airport = kind === 'airport'
+      ? [
+          ...(snapshot.inspectedRegion?.airports ?? []),
+          ...snapshot.regions.flatMap((region) => region.airports),
+        ].find((entry) => entry.id === id)
+      : undefined;
+    const port = kind === 'port'
+      ? [
+          ...(snapshot.inspectedRegion?.ports ?? []),
+          ...snapshot.regions.flatMap((region) => region.ports),
+        ].find((entry) => entry.id === id)
+      : undefined;
+    const base = airport ?? port;
+    if (!base) return;
+    const [lon, lat] = baseAnchor(kind, id, base.lon, base.lat);
+    set({
+      selectedBase: { kind, id },
+      selectedCityId: null,
+      baseFocus: { kind, id, lon, lat, nonce: Date.now() + Math.random() },
+    });
+  },
+
+  focusPointCamera: (lon, lat, altitude = 0.55) =>
+    set({ pointFocus: { lon, lat, altitude, nonce: Date.now() + Math.random() } }),
 
   setMapLayer: (mapLayer) => set({ mapLayer }),
 
@@ -966,7 +1065,12 @@ export const useAppStore = create<AppState>()((set, get) => ({
       get().showToast(message('direct.unavailable'), 'warning');
       return;
     }
-    set({ selectedMapUnitId: null, snapshot: session.snapshot() });
+    set({
+      selectedMapUnitId: null,
+      selectedCityId: null,
+      selectedBase: null,
+      snapshot: session.snapshot(),
+    });
   },
 
   exitDirectControl: () => {

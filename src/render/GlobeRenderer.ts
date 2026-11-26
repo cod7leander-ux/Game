@@ -39,6 +39,7 @@ import { RegionLayer } from './RegionLayer';
 import { CityLayer } from './CityLayer';
 import { CapitalLayer } from './CapitalLayer';
 import { SurfaceDetailLayer } from './SurfaceDetailLayer';
+import { BaseLayer } from './BaseLayer';
 import { UnitLayer } from './units/UnitLayer';
 import { ProjectileLayer } from './ProjectileLayer';
 import type { BattleProjectileView, MapLayerId, MapRegionView, UnitTokenView } from '../game/types';
@@ -87,6 +88,7 @@ export class GlobeRenderer {
   private readonly cityLayer = new CityLayer();
   private readonly capitalLayer = new CapitalLayer();
   private readonly detailLayer = new SurfaceDetailLayer();
+  private readonly baseLayer = new BaseLayer();
   private readonly unitLayer = new UnitLayer();
   private readonly projectileLayer = new ProjectileLayer();
   private readonly raycaster = new Raycaster();
@@ -127,6 +129,8 @@ export class GlobeRenderer {
     this.surfaceMesh = new Mesh(this.geometry.surface, this.surfaceMaterial);
     this.surfaceMesh.frustumCulled = false;
     this.scene.add(this.surfaceMesh);
+    this.detailLayer.bindSurface(this.surfaceMesh);
+    this.baseLayer.bindSurface(this.surfaceMesh);
 
     this.baseBorders = new LineSegments(
       this.geometry.borders,
@@ -196,6 +200,7 @@ export class GlobeRenderer {
     this.scene.add(this.armyMarkers.object);
     this.scene.add(this.regionLayer.object);
     this.scene.add(this.detailLayer.object);
+    this.scene.add(this.baseLayer.object);
     this.scene.add(this.cityLayer.object);
     this.scene.add(this.capitalLayer.object);
     this.scene.add(this.unitLayer.object);
@@ -361,6 +366,21 @@ export class GlobeRenderer {
   /** Follows the directly controlled unit with the same rig (chase or cockpit). */
   setDirectCamera(target: DirectCameraTarget | null): void {
     this.rig.setDirectTarget(target);
+  }
+
+  /** City view: close enough for buildings, landmarks and streets to read. */
+  frameCity(lon: number, lat: number): void {
+    this.rig.flyTo(lon, lat, 0.0135);
+  }
+
+  /** Airbase / port view: sits just above the installation. */
+  frameBase(lon: number, lat: number): void {
+    this.rig.flyTo(lon, lat, 0.016);
+  }
+
+  /** Strategic point focus, used by the minimap. */
+  framePoint(lon: number, lat: number, altitude = 0.55): void {
+    this.rig.flyTo(lon, lat, altitude);
   }
 
   returnToStrategic(countryId: string | null): void {
@@ -569,7 +589,15 @@ export class GlobeRenderer {
       this.detailUniform.value = this.rig.detailFactor;
       this.cityLayer.update(altitude, this.cityMarkersEnabled);
       this.capitalLayer.update(altitude);
+      // The country sheen is lifted clear of the displaced terrain, so at city
+      // altitude it would sit between the camera and the streets. Province
+      // selection already covers close-range highlighting.
+      this.highlightGroup.visible = altitude >= 0.035;
+      // Province fills and selection sit just above the terrain, which is the
+      // right shell at country range but would cover the streets at city range.
+      this.regionLayer.object.visible = altitude >= 0.03;
       this.detailLayer.update(altitude, this.rig.isDirect);
+      this.baseLayer.update(altitude);
       this.armyMarkers.update(clamp(altitude * 1.15, 0.5, 2.1));
       this.ocean.lookAt(this.rig.camera.position);
       this.stars.rotation.y += deltaSeconds * 0.0025;
@@ -608,6 +636,7 @@ export class GlobeRenderer {
     this.cityLayer.dispose();
     this.capitalLayer.dispose();
     this.detailLayer.dispose();
+    this.baseLayer.dispose();
     this.unitLayer.dispose();
     this.projectileLayer.dispose();
     this.renderer.dispose();

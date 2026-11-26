@@ -39,6 +39,9 @@ interface WorldStageProps {
   battleFocus?: { lon: number; lat: number; nonce: number } | null;
   armyFocus?: { lon: number; lat: number; nonce: number } | null;
   regionFocus?: { regionId: string; lon: number; lat: number; nonce: number } | null;
+  cityFocus?: { cityId: string; lon: number; lat: number; nonce: number } | null;
+  baseFocus?: { kind: string; id: string; lon: number; lat: number; nonce: number } | null;
+  pointFocus?: { lon: number; lat: number; altitude: number; nonce: number } | null;
   className?: string;
 }
 
@@ -64,6 +67,9 @@ export function WorldStage({
   battleFocus = null,
   armyFocus = null,
   regionFocus = null,
+  cityFocus = null,
+  baseFocus = null,
+  pointFocus = null,
   className,
 }: WorldStageProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -166,6 +172,21 @@ export function WorldStage({
     if (status !== 'ready' || !regionFocus) return;
     rendererRef.current?.frameRegion(regionFocus.regionId);
   }, [regionFocus, status]);
+
+  useEffect(() => {
+    if (status !== 'ready' || !cityFocus) return;
+    rendererRef.current?.frameCity(cityFocus.lon, cityFocus.lat);
+  }, [cityFocus, status]);
+
+  useEffect(() => {
+    if (status !== 'ready' || !baseFocus) return;
+    rendererRef.current?.frameBase(baseFocus.lon, baseFocus.lat);
+  }, [baseFocus, status]);
+
+  useEffect(() => {
+    if (status !== 'ready' || !pointFocus) return;
+    rendererRef.current?.framePoint(pointFocus.lon, pointFocus.lat, pointFocus.altitude);
+  }, [pointFocus, status]);
 
   useEffect(() => {
     rendererRef.current?.setQuality(resolveQuality(graphics));
