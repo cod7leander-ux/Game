@@ -42,6 +42,10 @@ export const CAMERA = {
     country: 0.28,
     region: 0.075,
     city: 0.02,
+    army: 0.03,
+    battlefield: 0.012,
+    unit: 0.004,
+    direct: 0.0006,
   },
   damping: 9,
   zoomSpeed: 0.0016,
@@ -66,6 +70,34 @@ export type QualityPreset = keyof typeof QUALITY;
  * the planet radius is 10. VISUAL_SCALE converts battlefield metres into scene
  * units (a 6 km battlefield is ~0.7 units across, readable at region zoom).
  */
+export const DIRECT = {
+  /** Fixed simulation step for the direct-control layer, in seconds. */
+  step: 1 / 30,
+  /**
+   * Local tactical compression: metres of weapon range per scene unit. The
+   * globe is not drawn at human scale, so direct control uses the same
+   * compressed local space the battlefield layer already established.
+   */
+  weaponScale: 0.00006,
+  /** Maximum local contacts kept alive around a controlled unit. */
+  maxContacts: 24,
+  /** Terrain sampling interval in seconds (never per frame). */
+  terrainInterval: 0.4,
+  /** Contact spawn ring around the controlled unit, in scene units. */
+  contactMinRange: 0.022,
+  contactMaxRange: 0.1,
+  /** A controlled unit is considered home within this distance. */
+  homeRadius: 0.01,
+  /** Damage a hostile contact deals per weapon hit, before weapon scaling. */
+  retaliationScale: 0.1,
+  /** Altitude above ground used by infantry, armour and artillery. */
+  groundClearance: 0.00028,
+  /** Ships sit just above the sea surface. */
+  seaClearance: 0.00042,
+  /** Maximum dive depth for submarines, in scene units below the surface. */
+  maxDive: 0.0045,
+} as const;
+
 export const TACTICAL = {
   /** Scene units per battlefield metre. */
   visualScale: 0.00012,

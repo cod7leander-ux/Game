@@ -10,8 +10,9 @@ import {
   MeshBasicMaterial,
 } from 'three';
 import { GAME } from '../core/config';
-import { PROVINCE_BORDER_SEGMENTS, cellsOfCountry } from '../geo';
+import { ALL_REGION_GEO, PROVINCE_BORDER_SEGMENTS, cellsOfCountry } from '../geo';
 import type { MapLayerId, MapRegionView } from '../game/types';
+import { surfaceReliefAt } from './globeGeography';
 
 /**
  * Batched province territory layer.
@@ -24,9 +25,15 @@ import type { MapLayerId, MapRegionView } from '../game/types';
  * No per-region mesh, no per-frame recomputation, no polygon scan.
  */
 const R = GAME.globeRadius;
-const FILL_RADIUS = R * 1.0128;
-const BORDER_RADIUS = R * 1.0134;
+/** Overlays hug the displaced terrain: a fixed shell would float above it up close. */
+const FILL_OFFSET = 0.0012;
+const BORDER_OFFSET = 0.0024;
+const SELECTION_OFFSET = 0.0036;
 const DEG = Math.PI / 180;
+
+const REGION_OWNER: Record<string, string> = Object.fromEntries(
+  ALL_REGION_GEO.map((region) => [region.id, region.countryId]),
+);
 
 const TONE_COLORS: Record<MapRegionView['tone'], string> = {
   player: '#3ee6a8',
@@ -112,7 +119,13 @@ export class RegionLayer {
         this.cellTriangles.set(cell.regionId, next);
 
         for (let corner = 0; corner < 3; corner += 1) {
-          const [x, y, z] = pointToXYZ(cell.triangle[corner * 2], cell.triangle[corner * 2 + 1], FILL_RADIUS);
+          const lon = cell.triangle[corner * 2];
+          const lat = cell.triangle[corner * 2 + 1];
+          const [x, y, z] = pointToXYZ(
+            lon,
+            lat,
+            R + surfaceReliefAt(countryId, lon, lat) + FILL_OFFSET,
+          );
           positions.push(x, y, z);
           colors.push(0.5, 0.5, 0.5);
         }
@@ -122,8 +135,16 @@ export class RegionLayer {
         });
       }
       for (const [aLon, aLat, bLon, bLat] of PROVINCE_BORDER_SEGMENTS[countryId]) {
-        const [ax, ay, az] = pointToXYZ(aLon, aLat, BORDER_RADIUS);
-        const [bx, by, bz] = pointToXYZ(bLon, bLat, BORDER_RADIUS);
+        const [ax, ay, az] = pointToXYZ(
+          aLon,
+          aLat,
+          R + surfaceReliefAt(countryId, aLon, aLat) + BORDER_OFFSET,
+        );
+        const [bx, by, bz] = pointToXYZ(
+          bLon,
+          bLat,
+          R + surfaceReliefAt(countryId, bLon, bLat) + BORDER_OFFSET,
+        );
         borderPositions.push(ax, ay, az, bx, by, bz);
       }
     }
@@ -149,15 +170,16 @@ export class RegionLayer {
   }
 
   setLayer(layer: MapLayerId): void {
-    this.fillMaterial.opacity = layer === 'terrain' ? 0.68 : layer === 'political' ? 0.46 : 0.58;
-    this.borderMaterial.opacity = layer === 'terrain' ? 0.32 : 0.55;
+    this.fillMaterial.opacity = layer === 'terrain' ? 0.6 : layer === 'political' ? 0.36 : 0.52;
+    this.borderMaterial.opacity = layer === 'terrain' ? 0.18 : 0.26;
     this.borderMaterial.color.set(layer === 'political' ? '#08131f' : '#0b1a26');
-    this.object.visible = true;
   }
 
   /** Recolours only when the layer or the derived region values changed. */
   setVisuals(views: MapRegionView[], layer: MapLayerId): void {
     this.setLayer(layer);
+    // No campaign yet means no provinces to tint; keep the world clean.
+    this.object.visible = views.length > 0;
     const signature = `${layer}|${views.length}|${views
       .map((view) =>
         `${view.id}:${view.tone}:${view.selected ? 1 : 0}:${view.population.toFixed(2)}:${view.economy.toFixed(2)}:${view.infrastructure.toFixed(2)}:${view.supply.toFixed(2)}:${view.military.toFixed(2)}:${view.diplomacy.toFixed(2)}:${view.objectives.toFixed(2)}:${view.resourceId ?? ''}:${view.resourceIntensity.toFixed(2)}`,
@@ -233,10 +255,13 @@ export class RegionLayer {
     }
     const positions = new Float32Array(triangles.length * 1.5);
     for (let vertex = 0; vertex < triangles.length / 2; vertex += 1) {
+      const lon = triangles[vertex * 2];
+      const lat = triangles[vertex * 2 + 1];
+      const owner = REGION_OWNER[regionId];
       const [x, y, z] = pointToXYZ(
-        triangles[vertex * 2],
-        triangles[vertex * 2 + 1],
-        FILL_RADIUS + 0.02,
+        lon,
+        lat,
+        R + surfaceReliefAt(owner ?? '', lon, lat) + SELECTION_OFFSET,
       );
       positions[vertex * 3] = x;
       positions[vertex * 3 + 1] = y;

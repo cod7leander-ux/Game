@@ -314,6 +314,99 @@ export interface UnitTokenView {
   selected: boolean;
   selectable: boolean;
   scale: number;
+  /** Strategic army this token belongs to, when it represents one. */
+  armyId?: string;
+  /** Country fielding the token. */
+  countryId?: string;
+  /** True when the player may take direct control of this token. */
+  controllable?: boolean;
+}
+
+/** A selectable strategic unit token, ready for direct control. */
+export interface WorldUnitView {
+  tokenId: string;
+  armyId: string;
+  unitId: string;
+  countryId: string;
+  name: string;
+  armyName: string;
+  countryName: string;
+  archetype: UnitArchetype;
+  domain: 'air' | 'ground' | 'naval';
+  health: number;
+  lon: number;
+  lat: number;
+  controllable: boolean;
+}
+
+/** One weapon on the directly controlled unit. */
+export interface DirectWeaponView {
+  id: string;
+  name: string;
+  damage: number;
+  range: number;
+  cooldown: number;
+  ready: number;
+  ammo: number;
+}
+
+/** A hostile formation or installation in the local battle space. */
+export interface DirectContactView {
+  id: string;
+  name: string;
+  kind: 'air' | 'ground';
+  countryName: string;
+  archetype: UnitArchetype;
+  distanceKm: number;
+  healthRatio: number;
+  targetable: boolean;
+}
+
+/** Camera pose for the direct-control follow rig. */
+export interface DirectCameraView {
+  lon: number;
+  lat: number;
+  altitude: number;
+  heading: number;
+  pitch: number;
+  mode: 'chase' | 'cockpit';
+  distance: number;
+  height: number;
+  lookAhead: number;
+}
+
+/** The complete direct-control read model for the HUD and the 3D layer. */
+export interface DirectControlView {
+  unitId: string;
+  name: string;
+  domain: 'air' | 'ground' | 'naval';
+  handling: string;
+  archetype: UnitArchetype;
+  countryName: string;
+  armyName: string;
+  lon: number;
+  lat: number;
+  altitude: number;
+  altitudeMetres: number;
+  depthMetres: number;
+  heading: number;
+  pitch: number;
+  speedKph: number;
+  throttle: number;
+  healthRatio: number;
+  terrain: string;
+  cameraMode: 'chase' | 'cockpit';
+  mode: 'free' | 'returning';
+  homeDistanceKm: number;
+  kills: number;
+  shots: number;
+  hits: number;
+  weapons: DirectWeaponView[];
+  target: DirectContactView | null;
+  contacts: DirectContactView[];
+  /** Player and contact tokens rendered inside the 3D world. */
+  tokens: UnitTokenView[];
+  camera: DirectCameraView;
 }
 
 export interface BattleWeaponView {
@@ -719,6 +812,10 @@ export interface PlayerSnapshot {
   battle: BattleView | null;
   /** 3D tokens for the active battlefield. */
   battleUnits: UnitTokenView[];
+  /** The strategic unit token the player has selected for inspection. */
+  selectedMapUnit: WorldUnitView | null;
+  /** Active direct-control session, if the player has taken a unit. */
+  direct: DirectControlView | null;
   resources: ResourceView[];
   research: ResearchView;
   military: {

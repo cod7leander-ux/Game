@@ -37,9 +37,12 @@ import { CameraRig } from './CameraRig';
 import { ArmyMarkers, type ArmyMarkerSpec } from './ArmyMarkers';
 import { RegionLayer } from './RegionLayer';
 import { CityLayer } from './CityLayer';
+import { CapitalLayer } from './CapitalLayer';
+import { SurfaceDetailLayer } from './SurfaceDetailLayer';
 import { UnitLayer } from './units/UnitLayer';
 import { ProjectileLayer } from './ProjectileLayer';
 import type { BattleProjectileView, MapLayerId, MapRegionView, UnitTokenView } from '../game/types';
+import type { DirectCameraTarget } from '../gameplay/direct/types';
 import { PALETTE } from './theme';
 
 /**
@@ -82,6 +85,8 @@ export class GlobeRenderer {
   private readonly armyMarkers = new ArmyMarkers();
   private readonly regionLayer = new RegionLayer();
   private readonly cityLayer = new CityLayer();
+  private readonly capitalLayer = new CapitalLayer();
+  private readonly detailLayer = new SurfaceDetailLayer();
   private readonly unitLayer = new UnitLayer();
   private readonly projectileLayer = new ProjectileLayer();
   private readonly raycaster = new Raycaster();
@@ -190,7 +195,9 @@ export class GlobeRenderer {
 
     this.scene.add(this.armyMarkers.object);
     this.scene.add(this.regionLayer.object);
+    this.scene.add(this.detailLayer.object);
     this.scene.add(this.cityLayer.object);
+    this.scene.add(this.capitalLayer.object);
     this.scene.add(this.unitLayer.object);
     this.scene.add(this.projectileLayer.object);
 
@@ -351,6 +358,11 @@ export class GlobeRenderer {
     this.rig.flyTo(lon, lat, TACTICAL.battleAltitude);
   }
 
+  /** Follows the directly controlled unit with the same rig (chase or cockpit). */
+  setDirectCamera(target: DirectCameraTarget | null): void {
+    this.rig.setDirectTarget(target);
+  }
+
   returnToStrategic(countryId: string | null): void {
     if (countryId) this.frameCountry(countryId);
     else this.rig.flyTo(this.rig.focusLonLat[0], this.rig.focusLonLat[1], CAMERA.startAltitude);
@@ -384,6 +396,8 @@ export class GlobeRenderer {
         }),
       );
       mesh.renderOrder = 2;
+      // Lift the additive sheen just clear of the displaced terrain.
+      mesh.scale.setScalar(1.0009);
       this.highlightGroup.add(mesh);
       if (outline) {
         const lines = new LineSegments(
@@ -396,6 +410,7 @@ export class GlobeRenderer {
           }),
         );
         lines.renderOrder = 3;
+        lines.scale.setScalar(1.0011);
         this.highlightGroup.add(lines);
       }
     };
@@ -553,6 +568,8 @@ export class GlobeRenderer {
       const altitude = this.rig.altitudeRatio;
       this.detailUniform.value = this.rig.detailFactor;
       this.cityLayer.update(altitude, this.cityMarkersEnabled);
+      this.capitalLayer.update(altitude);
+      this.detailLayer.update(altitude, this.rig.isDirect);
       this.armyMarkers.update(clamp(altitude * 1.15, 0.5, 2.1));
       this.ocean.lookAt(this.rig.camera.position);
       this.stars.rotation.y += deltaSeconds * 0.0025;
@@ -589,6 +606,8 @@ export class GlobeRenderer {
     this.armyMarkers.dispose();
     this.regionLayer.dispose();
     this.cityLayer.dispose();
+    this.capitalLayer.dispose();
+    this.detailLayer.dispose();
     this.unitLayer.dispose();
     this.projectileLayer.dispose();
     this.renderer.dispose();

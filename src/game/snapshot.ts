@@ -27,7 +27,9 @@ import { dailyUpkeep } from '../gameplay/military/upkeep';
 import { armyPower, armyUnits } from '../gameplay/military/armies';
 import { tacticalProfileOrFallback, weaponsOf } from '../data/tacticalProfiles';
 import type { TacticalBattle } from '../gameplay/tactical/TacticalBattle';
-import { TACTICAL } from '../core/config';
+import { DIRECT, GAME, TACTICAL } from '../core/config';
+import { getWeapon } from '../data/weapons';
+import type { DirectControlState } from '../gameplay/direct/types';
 import type { World } from '../gameplay/World';
 import { findRegionState } from '../gameplay/war/WarSystem';
 import type {
@@ -68,6 +70,10 @@ import type {
   RegionView,
   ResourceView,
   UnitTokenView,
+  DirectContactView,
+  DirectControlView,
+  DirectWeaponView,
+  WorldUnitView,
 } from './types';
 import type { ResourceId } from '../gameplay/economy/types';
 
@@ -93,7 +99,30 @@ export interface SnapshotInput {
   selectedUnitId?: string | null;
   /** Currently inspected province. */
   selectedRegionId?: string | null;
+  /** Strategic unit token selected for inspection. */
+  selectedMapUnitId?: string | null;
+  /** Active direct-control session. */
+  direct?: DirectControlState | null;
 }
+
+const DEG_TO_RAD = Math.PI / 180;
+
+/** Compressed local distance between two geographic points, in scene units. */
+const sceneDistanceBetween = (
+  aLon: number,
+  aLat: number,
+  bLon: number,
+  bLat: number,
+): number => {
+  const midLat = ((aLat + bLat) / 2) * DEG_TO_RAD;
+  const dLon = (bLon - aLon) * DEG_TO_RAD * Math.cos(midLat);
+  const dLat = (bLat - aLat) * DEG_TO_RAD;
+  return Math.hypot(dLon, dLat) * GAME.globeRadius;
+};
+
+/** Local tactical distance in kilometres, matching weapon-range compression. */
+const localDistanceKm = (sceneUnits: number): number =>
+  sceneUnits / (DIRECT.weaponScale * 1000);
 
 const monthName = (locale: LocaleCode) => (index: number) =>
   translate(locale, `time.month.${index + 1}` as MessageKey);
@@ -882,7 +911,11 @@ const buildArmyMarkers = (world: World, playerId: string): ArmyMarkerView[] => {
  * anchor, so military forces are visible on the globe before a battle starts.
  * Purely presentational: the army stacks remain the source of truth.
  */
-const buildMapUnits = (world: World, playerId: string): UnitTokenView[] => {
+const buildMapUnits = (
+  world: World,
+  playerId: string,
+  selectedTokenId?: string | null,
+): UnitTokenView[] => {
   const player = world.get(playerId);
   if (!player) return [];
   const tokens: UnitTokenView[] = [];
@@ -910,8 +943,9 @@ const buildMapUnits = (world: World, playerId: string): UnitTokenView[] => {
         const columns = 2;
         const column = index % columns;
         const row = Math.floor(index / columns);
+        const tokenId = `${army.id}-token-${index}`;
         tokens.push({
-          id: `${army.id}-token-${index}`,
+          id: tokenId,
           unitId,
           archetype: profile.archetype,
           lon: armyLon,
@@ -922,9 +956,12 @@ const buildMapUnits = (world: World, playerId: string): UnitTokenView[] => {
           heading: 0.6,
           tone,
           health: 1,
-          selected: false,
-          selectable: false,
-          scale: TACTICAL.mapTokenScale,
+          selected: own && tokenId === selectedTokenId,
+          selectable: own,
+          scale: own && tokenId === selectedTokenId ? TACTICAL.mapTokenScale * 1.25 : TACTICAL.mapTokenScale,
+          armyId: army.id,
+          countryId: country.id,
+          controllable: own,
         });
       });
     });
@@ -1058,6 +1095,187 @@ const buildBattleUnits = (
     });
   }
   return tokens;
+};
+
+/** The strategic unit token the player selected for possible direct control. */
+const buildSelectedMapUnit = (
+  world: World,
+  tokens: UnitTokenView[],
+  selectedId: string | null | undefined,
+  locale: LocaleCode,
+): WorldUnitView | null => {
+  if (!selectedId) return null;
+  const token = tokens.find((entry) => entry.id === selectedId && entry.controllable);
+  if (!token || !token.armyId || !token.countryId) return null;
+  const country = world.get(token.countryId);
+  const definition = COUNTRY_BY_ID[token.countryId];
+  const army = country?.military.armies.find((entry) => entry.id === token.armyId);
+  const unit = getUnit(token.unitId);
+  if (!country || !definition || !army || !unit) return null;
+  return {
+    tokenId: token.id,
+    armyId: army.id,
+    unitId: unit.id,
+    countryId: country.id,
+    name: localize(unit.name, locale),
+    armyName: army.name,
+    countryName: localize(definition.name, locale),
+    archetype: token.archetype,
+    domain: unit.domain === 'air' ? 'air' : unit.domain === 'naval' ? 'naval' : 'ground',
+    health: token.health,
+    lon: token.lon,
+    lat: token.lat,
+    controllable: true,
+  };
+};
+
+/** Direct-control read model: HUD data plus the tokens rendered in the world. */
+const buildDirectView = (
+  world: World,
+  state: DirectControlState | null | undefined,
+  locale: LocaleCode,
+): DirectControlView | null => {
+  if (!state) return null;
+  const entity = state.entity;
+  const unit = getUnit(entity.unitId);
+  const definition = COUNTRY_BY_ID[entity.countryId];
+  const country = world.get(entity.countryId);
+  const army = country?.military.armies.find((entry) => entry.id === entity.armyId);
+  const domain: DirectControlView['domain'] =
+    unit?.domain === 'air' ? 'air' : unit?.domain === 'naval' ? 'naval' : 'ground';
+  const countryName = definition ? localize(definition.name, locale) : entity.countryId;
+
+  const contactView = (contact: (typeof state.contacts)[number]): DirectContactView => {
+    const contactCountry = COUNTRY_BY_ID[contact.countryId];
+    const contactUnit = getUnit(contact.unitId);
+    const targetable = entity.profile.weapons.some((weaponId) => {
+      const weapon = getWeapon(weaponId);
+      return Boolean(weapon?.targetLayers.includes(contact.layer));
+    });
+    return {
+      id: contact.id,
+      name: contactUnit ? localize(contactUnit.name, locale) : contact.unitId,
+      kind: contact.layer,
+      countryName: contactCountry ? localize(contactCountry.name, locale) : contact.countryId,
+      archetype: contact.archetype,
+      distanceKm: localDistanceKm(
+        sceneDistanceBetween(entity.lon, entity.lat, contact.lon, contact.lat),
+      ),
+      healthRatio: contact.maxHealth > 0 ? Math.max(0, contact.health / contact.maxHealth) : 0,
+      targetable,
+    };
+  };
+
+  const weapons: DirectWeaponView[] = entity.profile.weapons
+    .map((weaponId) => getWeapon(weaponId))
+    .filter((weapon): weapon is NonNullable<typeof weapon> => Boolean(weapon))
+    .map((weapon) => ({
+      id: weapon.id,
+      name: localize(weapon.name, locale),
+      damage: weapon.damage,
+      range: Math.round(weapon.range),
+      cooldown: weapon.cooldown,
+      ready: Math.max(0, entity.cooldowns[weapon.id] ?? 0),
+      ammo: entity.ammo[weapon.id] ?? 0,
+    }));
+
+  const target = entity.targetId
+    ? state.contacts.find((contact) => contact.id === entity.targetId)
+    : undefined;
+
+  const homeDistance = localDistanceKm(
+    sceneDistanceBetween(entity.lon, entity.lat, entity.home[0], entity.home[1]),
+  );
+
+  const tokens: UnitTokenView[] = [
+    {
+      id: `direct-${entity.countryId}-${entity.unitId}`,
+      unitId: entity.unitId,
+      archetype: entity.profile.archetype,
+      lon: entity.lon,
+      lat: entity.lat,
+      offsetEast: 0,
+      offsetNorth: 0,
+      altitude: entity.altitude,
+      heading: entity.heading,
+      tone: 'player',
+      health: Math.max(0, entity.health / Math.max(1, entity.maxHealth)),
+      selected: true,
+      selectable: false,
+      scale: 0.85,
+      armyId: entity.armyId,
+      countryId: entity.countryId,
+      controllable: true,
+    },
+    ...state.contacts.map(
+      (contact): UnitTokenView => ({
+        id: contact.id,
+        unitId: contact.unitId,
+        archetype: contact.archetype,
+        lon: contact.lon,
+        lat: contact.lat,
+        offsetEast: 0,
+        offsetNorth: 0,
+        altitude: contact.altitude,
+        heading: contact.heading,
+        tone: 'enemy',
+        health: contact.maxHealth > 0 ? Math.max(0, contact.health / contact.maxHealth) : 0,
+        selected: false,
+        selectable: false,
+        scale: 0.6,
+        armyId: contact.armyId,
+        countryId: contact.countryId,
+        controllable: false,
+      }),
+    ),
+  ];
+
+  const terrain = TERRAIN[entity.terrain as keyof typeof TERRAIN];
+  const camera = entity.profile.camera;
+
+  return {
+    unitId: entity.unitId,
+    name: unit ? localize(unit.name, locale) : entity.unitId,
+    domain,
+    handling: entity.profile.handling,
+    archetype: entity.profile.archetype,
+    countryName,
+    armyName: army?.name ?? entity.armyId,
+    lon: entity.lon,
+    lat: entity.lat,
+    altitude: entity.altitude,
+    altitudeMetres: Math.round(Math.max(0, entity.altitude) * entity.profile.metresPerUnit),
+    depthMetres: Math.round(Math.max(0, -entity.altitude) * entity.profile.metresPerUnit),
+    heading: entity.heading,
+    pitch: entity.pitch,
+    speedKph: Math.round(
+      (entity.speed / Math.max(0.0001, entity.profile.maxSpeed)) * entity.profile.maxSpeedKph,
+    ),
+    throttle: state.input.throttle,
+    healthRatio: Math.max(0, entity.health / Math.max(1, entity.maxHealth)),
+    terrain: terrain ? localize(terrain.name, locale) : entity.terrain,
+    cameraMode: state.cameraMode,
+    mode: entity.mode,
+    homeDistanceKm: homeDistance,
+    kills: state.kills,
+    shots: state.shots,
+    hits: state.hits,
+    weapons,
+    target: target ? contactView(target) : null,
+    contacts: state.contacts.map(contactView),
+    tokens,
+    camera: {
+      lon: entity.lon,
+      lat: entity.lat,
+      altitude: entity.altitude,
+      heading: entity.heading,
+      pitch: entity.pitch,
+      mode: state.cameraMode,
+      distance: camera.chaseDistance,
+      height: camera.chaseHeight,
+      lookAhead: camera.lookAhead,
+    },
+  };
 };
 
 const buildWarnings = (country: CountryState, locale: LocaleCode): string[] => {
@@ -1369,6 +1587,7 @@ export const buildPlayerSnapshot = (input: SnapshotInput): PlayerSnapshot | null
   const cost = activeTech?.cost ?? 0;
   const remaining = Math.max(0, cost - country.research.progress);
   const netIncome = country.economy.income - country.economy.expenses;
+  const mapUnits = buildMapUnits(input.world, country.id, input.selectedMapUnitId);
 
   return {
     day: input.day,
@@ -1413,9 +1632,16 @@ export const buildPlayerSnapshot = (input: SnapshotInput): PlayerSnapshot | null
     },
     armies: buildArmyViews(input.world, country, locale),
     mapArmies: buildArmyMarkers(input.world, country.id),
-    mapUnits: buildMapUnits(input.world, country.id),
+    mapUnits,
     battle: buildBattleView(input.battle ?? null, locale),
     battleUnits: buildBattleUnits(input.battle ?? null, input.selectedUnitId),
+    selectedMapUnit: buildSelectedMapUnit(
+      input.world,
+      mapUnits,
+      input.selectedMapUnitId,
+      locale,
+    ),
+    direct: buildDirectView(input.world, input.direct ?? null, locale),
     resources: buildResourceViews(country, locale),
     research: {
       activeId: country.research.activeTechId,

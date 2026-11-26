@@ -39,6 +39,24 @@ export interface TerrainDefinition {
   yields: Partial<Record<ResourceId, number>>;
 }
 
+/**
+ * Terrain elevation in scene units (globe radius = 10 → about 637 km per unit).
+ *
+ * The renderer builds the 3D surface from these heights and the direct-control
+ * layer collides against the same values, so mountains the player sees are the
+ * same mountains that slow a march and block low flight.
+ */
+export const TERRAIN_HEIGHT: Record<TerrainType, number> = {
+  plains: 0.0007,
+  hills: 0.0019,
+  mountain: 0.0068,
+  forest: 0.0013,
+  desert: 0.0008,
+  urban: 0.001,
+  coastal: 0.0004,
+  water: 0,
+};
+
 export const TERRAIN: Record<TerrainType, TerrainDefinition> = {
   plains: {
     id: 'plains',

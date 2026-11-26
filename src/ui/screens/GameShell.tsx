@@ -8,6 +8,8 @@ import { CountryDossier } from '../components/CountryDossier';
 import { MapLayerBar } from '../components/MapLayerBar';
 import { NotificationsDrawer } from '../components/NotificationsDrawer';
 import { BattleHud } from '../components/BattleHud';
+import { DirectControlHud } from '../components/DirectControlHud';
+import { WorldUnitHud } from '../components/WorldUnitHud';
 import { relationStatusOf } from '../components/relation-utils';
 
 export function GameShell() {
@@ -58,6 +60,8 @@ export function GameShell() {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+      // Direct control owns the keyboard while a unit is under manual control.
+      if (useAppStore.getState().snapshot?.direct) return;
       if (event.code === 'Space') {
         event.preventDefault();
         togglePause();
@@ -128,7 +132,12 @@ export function GameShell() {
         <span>{snapshot.dateLabel}</span>
       </div>
 
-      <BattleHud snapshot={snapshot} />
+      <WorldUnitHud snapshot={snapshot} />
+      {snapshot.direct ? (
+        <DirectControlHud direct={snapshot.direct} />
+      ) : (
+        <BattleHud snapshot={snapshot} />
+      )}
       {showNotifications && <NotificationsDrawer />}
     </div>
   );

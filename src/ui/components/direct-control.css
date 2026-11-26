@@ -1,0 +1,338 @@
+/* Direct-control HUD and selected-unit card. */
+
+.army-chip--control {
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  color: var(--text);
+  border: 1px solid var(--line-soft);
+  border-radius: 99px;
+  background: rgba(11, 19, 29, 0.7);
+  padding: 2px 8px;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.army-chip--control:hover,
+.army-chip--control:focus-visible {
+  border-color: var(--gold);
+  color: var(--gold-bright);
+}
+
+.direct-hud {
+  position: absolute;
+  inset-block-end: 54px;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  width: min(980px, calc(100vw - 28px));
+  max-height: 62vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px 16px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-panel);
+  z-index: 8;
+}
+
+.direct-hud__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.direct-hud__identity {
+  flex: 1;
+  min-width: 0;
+}
+
+.direct-hud__identity h3 {
+  margin: 2px 0 1px;
+  font-size: 17px;
+  letter-spacing: 0.01em;
+}
+
+.direct-hud__meta {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.direct-hud__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+.direct-hud__badge {
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold-bright);
+  white-space: nowrap;
+}
+
+.direct-hud__badge--warn {
+  border-color: rgba(232, 180, 90, 0.6);
+  background: rgba(232, 180, 90, 0.14);
+}
+
+.direct-hud__body {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 1fr;
+  gap: 10px;
+}
+
+.direct-hud__readouts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px 10px;
+  align-content: start;
+}
+
+.direct-hud__readouts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(6, 11, 17, 0.5);
+}
+
+.direct-hud__readouts span {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.direct-hud__readouts strong {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.direct-hud__bar {
+  display: block;
+  height: 4px;
+  margin-top: 3px;
+  border-radius: 99px;
+  background: rgba(127, 230, 179, 0.18);
+  overflow: hidden;
+}
+
+.direct-hud__bar > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--green), var(--cyan));
+}
+
+.direct-hud__target,
+.direct-hud__weapons,
+.direct-hud__contacts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(6, 11, 17, 0.45);
+  min-height: 84px;
+}
+
+.direct-hud__target strong {
+  font-size: 13px;
+}
+
+.direct-hud__label {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.direct-hud__muted {
+  color: var(--mute);
+  font-size: 11px;
+}
+
+.direct-hud__weapons ul,
+.direct-hud__contacts ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.direct-weapon {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 3px 5px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+}
+
+.direct-weapon:hover,
+.direct-weapon:focus-visible {
+  border-color: var(--line);
+  background: rgba(232, 180, 90, 0.08);
+}
+
+.direct-weapon span {
+  font-size: 11px;
+  color: var(--text);
+}
+
+.direct-weapon em,
+.direct-hud__contacts em {
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  color: var(--mute);
+}
+
+.direct-weapon[data-empty='true'] span {
+  color: var(--red);
+  text-decoration: line-through;
+}
+
+.direct-hud__contacts li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--dim);
+  padding: 2px 4px;
+  border-radius: 5px;
+}
+
+.direct-hud__contacts li.is-target {
+  background: rgba(229, 103, 95, 0.16);
+  color: var(--text);
+}
+
+.direct-hud__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 8px;
+}
+
+.direct-hud__pad {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.direct-hud__hint {
+  flex: 1;
+  min-width: 220px;
+  margin: 0;
+  font-size: 10px;
+  color: var(--mute);
+  text-align: end;
+}
+
+.world-unit-hud {
+  position: absolute;
+  inset-block-end: 74px;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  width: min(360px, calc(100vw - 28px));
+  padding: 12px 14px;
+  z-index: 8;
+}
+
+.world-unit-hud__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.world-unit-hud__head h4 {
+  margin: 1px 0 1px;
+  font-size: 15px;
+}
+
+.world-unit-hud__head > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.world-unit-hud__meta {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.world-unit-hud__close {
+  all: unset;
+  cursor: pointer;
+  color: var(--mute);
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 3px;
+}
+
+.world-unit-hud__close:hover {
+  color: var(--text);
+}
+
+.world-unit-hud__stats {
+  display: flex;
+  gap: 16px;
+  margin: 8px 0;
+}
+
+.world-unit-hud__stats dt {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.world-unit-hud__stats dd {
+  margin: 0;
+  font-size: 13px;
+}
+
+.world-unit-hud__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.world-unit-hud__hint {
+  margin: 8px 0 0;
+  font-size: 10px;
+  color: var(--mute);
+}
+
+@media (max-width: 860px) {
+  .direct-hud__body {
+    grid-template-columns: 1fr;
+  }
+  .direct-hud__readouts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .direct-hud__hint {
+    text-align: start;
+  }
+}

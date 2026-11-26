@@ -12,6 +12,9 @@ import type { GameSpeed } from '../core/config';
 import { saveManager } from '../save/SaveManager';
 import type { SaveSlotId, SaveSummary } from '../save/types';
 import type { FormationType } from '../gameplay/tactical/types';
+import type { DirectInput } from '../gameplay/direct/types';
+import { getUnit } from '../data/units';
+import { localize } from '../i18n/types';
 import { useSettingsStore } from './settingsStore';
 import { translate } from '../i18n';
 import { formatNumber } from '../i18n/format';
@@ -78,6 +81,8 @@ interface AppState {
   selectedCountryId: string | null;
   hoveredCountryId: string | null;
   selectedRegionId: string | null;
+  /** Strategic unit token selected in the 3D world. */
+  selectedMapUnitId: string | null;
   mapLayer: MapLayerId;
   inspectedBrief: CountryBrief | null;
   session: GameSession | null;
@@ -105,6 +110,7 @@ interface AppState {
 
   selectCountry: (countryId: string | null, focusCamera?: boolean) => void;
   selectRegion: (regionId: string | null) => void;
+  selectMapUnit: (tokenId: string | null) => void;
   hoverCountry: (countryId: string | null) => void;
   focusCountryCamera: (countryId: string) => void;
   focusRegionCamera: (regionId: string) => void;
@@ -172,6 +178,15 @@ interface AppState {
   battleHoldSelected: () => void;
   dismissBattle: () => void;
 
+  /** Direct control: take, drive and release a single unit in the world. */
+  enterDirectControl: (armyId: string, unitId: string) => void;
+  exitDirectControl: () => void;
+  setDirectInput: (input: Partial<DirectInput>) => void;
+  cycleDirectTarget: () => void;
+  directSelectWeapon: (index: number) => void;
+  toggleDirectCamera: () => void;
+  directReturnToBase: () => void;
+
   showToast: (message: string, tone?: Toast['tone']) => void;
   dismissToast: () => void;
 }
@@ -191,6 +206,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   selectedCountryId: null,
   hoveredCountryId: null,
   selectedRegionId: null,
+  selectedMapUnitId: null,
   mapLayer: 'political',
   inspectedBrief: null,
   session: null,
@@ -251,6 +267,9 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   selectCountry: (countryId, focusCamera = false) => {
     const { phase } = get();
+    const session = get().session;
+    if (session) session.selectedMapUnitId = null;
+    set({ selectedMapUnitId: null });
     if (!countryId) {
       set({ selectedCountryId: null, inspectedBrief: null });
       return;
@@ -282,6 +301,13 @@ export const useAppStore = create<AppState>()((set, get) => ({
     const session = get().session;
     if (session) session.selectedRegionId = regionId;
     set({ selectedRegionId: regionId, snapshot: session?.snapshot() ?? null });
+  },
+
+  selectMapUnit: (tokenId) => {
+    const session = get().session;
+    if (!session) return;
+    session.selectedMapUnitId = tokenId;
+    set({ selectedMapUnitId: tokenId, snapshot: session.snapshot() });
   },
 
   hoverCountry: (hoveredCountryId) => set({ hoveredCountryId }),
@@ -334,6 +360,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       dialog: 'none',
       selectedCountryId: null,
       inspectedBrief: null,
+      selectedMapUnitId: null,
     });
   },
 
@@ -394,6 +421,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       dialog: 'none',
       busy: false,
       selectedCountryId: session.world.playerCountryId,
+      selectedMapUnitId: null,
       cameraFocus: { countryId: session.world.playerCountryId, nonce: Date.now() },
       battleFocus: null,
     });
@@ -432,12 +460,31 @@ export const useAppStore = create<AppState>()((set, get) => ({
     const { session } = get();
     if (!session) return;
     const steps = session.advance(deltaMs);
-    if (steps > 0) {
+    const direct = session.directControl.active;
+    // Direct control needs a faster read model for its HUD and follow camera.
+    if (steps > 0 || direct) {
       const now = performance.now();
-      if (now - lastSnapshotAt > 200) {
+      if (now - lastSnapshotAt > (direct ? 55 : 200)) {
         lastSnapshotAt = now;
         set({ snapshot: session.snapshot() });
       }
+    }
+    const result = session.consumeDirectResult();
+    if (result) {
+      const locale = useSettingsStore.getState().locale;
+      const unit = getUnit(result.unitId);
+      const unitName = unit ? localize(unit.name, locale) : result.unitId;
+      const key: MessageKey =
+        result.status === 'destroyed'
+          ? 'direct.notice.destroyed'
+          : result.status === 'returned'
+            ? 'direct.notice.returned'
+            : 'direct.notice.exited';
+      get().showToast(
+        translate(locale, key, { unit: unitName, kills: result.kills }),
+        result.status === 'destroyed' ? 'danger' : 'info',
+      );
+      set({ snapshot: session.snapshot() });
     }
     if (session.consumeAutoSaveFlag() && useSettingsStore.getState().autosave) {
       void get().saveToSlot('auto', true);
@@ -910,6 +957,55 @@ export const useAppStore = create<AppState>()((set, get) => ({
     session.dismissBattle();
     set({ snapshot: session.snapshot() });
     get().focusCountryCamera(session.world.playerCountryId);
+  },
+
+  enterDirectControl: (armyId, unitId) => {
+    const session = get().session;
+    if (!session) return;
+    if (!session.enterDirectControl(armyId, unitId)) {
+      get().showToast(message('direct.unavailable'), 'warning');
+      return;
+    }
+    set({ selectedMapUnitId: null, snapshot: session.snapshot() });
+  },
+
+  exitDirectControl: () => {
+    const session = get().session;
+    if (!session) return;
+    session.exitDirectControl();
+    set({ snapshot: session.snapshot() });
+  },
+
+  setDirectInput: (input) => {
+    get().session?.setDirectInput(input);
+  },
+
+  cycleDirectTarget: () => {
+    const session = get().session;
+    if (!session) return;
+    session.directCycleTarget();
+    set({ snapshot: session.snapshot() });
+  },
+
+  directSelectWeapon: (index) => {
+    const session = get().session;
+    if (!session) return;
+    session.directSelectWeapon(index);
+    set({ snapshot: session.snapshot() });
+  },
+
+  toggleDirectCamera: () => {
+    const session = get().session;
+    if (!session) return;
+    session.directToggleCamera();
+    set({ snapshot: session.snapshot() });
+  },
+
+  directReturnToBase: () => {
+    const session = get().session;
+    if (!session) return;
+    session.directReturnToBase();
+    set({ snapshot: session.snapshot() });
   },
 
   showToast: (text, tone = 'info') => {

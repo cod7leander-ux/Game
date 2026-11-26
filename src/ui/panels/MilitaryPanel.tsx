@@ -25,6 +25,7 @@ export function MilitaryPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
   const marchArmy = useAppStore((state) => state.marchArmy);
   const orderArmyMove = useAppStore((state) => state.orderArmyMove);
   const focusArmyCamera = useAppStore((state) => state.focusArmyCamera);
+  const enterDirectControl = useAppStore((state) => state.enterDirectControl);
   const objectiveTarget = snapshot.objectives.find(
     (objective) => objective.status === 'active' && objective.target,
   )?.target;
@@ -192,9 +193,15 @@ export function MilitaryPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
 
                 <div className="army-card__units">
                   {army.composition.slice(0, 4).map((entry) => (
-                    <span key={entry.unitId} className="army-chip">
+                    <button
+                      key={entry.unitId}
+                      type="button"
+                      className="army-chip army-chip--control"
+                      title={tr('direct.takeControl')}
+                      onClick={() => enterDirectControl(army.id, entry.unitId)}
+                    >
                       {n(entry.count)}× {entry.name}
-                    </span>
+                    </button>
                   ))}
                   {army.composition.length > 4 && (
                     <span className="army-chip army-chip--more">
@@ -202,6 +209,7 @@ export function MilitaryPanel({ snapshot }: { snapshot: PlayerSnapshot }) {
                     </span>
                   )}
                 </div>
+                <p className="army-card__hint muted">{tr('military.directHint')}</p>
 
                 {army.route.length > 0 && (
                   <p className="hint">

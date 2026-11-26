@@ -28,6 +28,8 @@ export function App() {
   const regionFocus = useAppStore((state) => state.regionFocus);
   const mapUnits = useAppStore((state) => state.snapshot?.mapUnits);
   const battleUnits = useAppStore((state) => state.snapshot?.battleUnits);
+  const direct = useAppStore((state) => state.snapshot?.direct);
+  const selectMapUnit = useAppStore((state) => state.selectMapUnit);
   const projectiles = useAppStore((state) => state.snapshot?.battle?.projectiles);
   const battleFocus = useAppStore((state) => state.battleFocus);
   const armyFocus = useAppStore((state) => state.armyFocus);
@@ -45,7 +47,11 @@ export function App() {
     document.documentElement.style.setProperty('--ui-scale', String(uiScale));
   }, [locale, tr, uiScale]);
 
-  const units = battleUnits && battleUnits.length > 0 ? battleUnits : (mapUnits ?? []);
+  const units = direct
+    ? direct.tokens
+    : battleUnits && battleUnits.length > 0
+      ? battleUnits
+      : (mapUnits ?? []);
 
   const labels = useMemo<StageLabel[]>(() => {
     const out: StageLabel[] = [];
@@ -107,11 +113,15 @@ export function App() {
         }}
         units={phase === 'game' ? units : undefined}
         projectiles={phase === 'game' ? projectiles : undefined}
+        directCamera={phase === 'game' ? (direct?.camera ?? null) : null}
         battleFocus={battleFocus}
         armyFocus={armyFocus}
         onUnitClick={(unitId) => {
           if (phase !== 'game') return;
-          if (unitId) selectUnit(unitId);
+          if (!unitId) return;
+          if (direct) return;
+          if (useAppStore.getState().snapshot?.battle) selectUnit(unitId);
+          else selectMapUnit(unitId);
         }}
       />
       <div className="app-shell__screens">

@@ -26,6 +26,8 @@ import type {
   PeaceTerm,
 } from '../gameplay/war/types';
 import { World } from '../gameplay/World';
+import { DirectControlSystem } from '../gameplay/direct/DirectControlSystem';
+import type { DirectControlResult, DirectInput } from '../gameplay/direct/types';
 import type { MessageKey } from '../i18n/locales/en';
 import type { SaveFile } from '../save/types';
 import type { CampaignDifficulty, PlayerSnapshot } from './types';
@@ -61,6 +63,8 @@ export class GameSession {
   readonly world: World;
   readonly clock: SimClock;
   readonly simulation: Simulation;
+  /** Player-controlled unit layer; the strategic simulation keeps running. */
+  readonly directControl = new DirectControlSystem();
   readonly notifications: NotificationEntry[] = [];
   readonly createdAt: number;
   readonly difficulty: CampaignDifficulty;
@@ -72,6 +76,8 @@ export class GameSession {
   selectedUnitId: string | null = null;
   /** Province inspected by the player (presentation state, not saved). */
   selectedRegionId: string | null = null;
+  /** Strategic unit token selected for inspection (presentation state). */
+  selectedMapUnitId: string | null = null;
 
   private unsubscribe: () => void;
   private notifyCounter = 0;
@@ -172,9 +178,11 @@ export class GameSession {
     for (let index = 0; index < steps; index += 1) {
       this.simulation.tickDay(startDay + index + 1);
     }
-    // Battles run in real time and pause with the campaign clock.
+    // Battles and direct control run in real time and pause with the clock.
     if (!this.clock.isPaused) {
-      this.simulation.advanceRealtime(Math.min(250, Math.max(0, deltaMs)) / 1000);
+      const realtime = Math.min(250, Math.max(0, deltaMs)) / 1000;
+      this.simulation.advanceRealtime(realtime);
+      this.directControl.advance(realtime, this.world);
     }
     if (this.clock.day - this.lastAutosaveDay >= GAME.autosaveEveryDays) {
       this.lastAutosaveDay = this.clock.day;
@@ -513,6 +521,57 @@ export class GameSession {
   dismissBattle(): void {
     this.simulation.dismissBattle();
     this.selectedUnitId = null;
+  }
+
+  // ── Direct control layer ────────────────────────────────────────────────────
+
+  /**
+   * Takes personal control of one unit inside one of the player's armies.
+   * The army, its strategic orders and every AI system keep running.
+   */
+  enterDirectControl(armyId: string, unitId: string): boolean {
+    const entered = this.directControl.enter(
+      this.world,
+      this.world.playerCountryId,
+      armyId,
+      unitId,
+      this.clock.day,
+      this.world.seed,
+    );
+    if (entered) this.selectedUnitId = null;
+    return entered;
+  }
+
+  exitDirectControl(): void {
+    this.directControl.exit();
+  }
+
+  setDirectInput(input: Partial<DirectInput>): void {
+    this.directControl.setInput(input);
+  }
+
+  directCycleTarget(): boolean {
+    return Boolean(this.directControl.cycleTarget());
+  }
+
+  directSetTarget(contactId: string | null): boolean {
+    return this.directControl.setTarget(contactId);
+  }
+
+  directSelectWeapon(index: number): void {
+    this.directControl.setWeapon(index);
+  }
+
+  directToggleCamera(): 'chase' | 'cockpit' {
+    return this.directControl.toggleCamera();
+  }
+
+  directReturnToBase(): void {
+    this.directControl.returnToBase();
+  }
+
+  consumeDirectResult(): DirectControlResult | null {
+    return this.directControl.consumeResult();
   }
 
   // ── Notifications ───────────────────────────────────────────────────────────
@@ -866,6 +925,8 @@ export class GameSession {
       battle: this.simulation.playerBattle() ?? null,
       selectedUnitId: this.selectedUnitId,
       selectedRegionId: this.selectedRegionId,
+      selectedMapUnitId: this.selectedMapUnitId,
+      direct: this.directControl.state(),
     });
   }
 

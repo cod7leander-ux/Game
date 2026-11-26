@@ -3,6 +3,7 @@ import { GlobeRenderer } from '../../render/GlobeRenderer';
 import type { ArmyMarkerSpec } from '../../render/ArmyMarkers';
 import type {
   BattleProjectileView,
+  DirectCameraView,
   MapLayerId,
   MapRegionView,
   UnitTokenView,
@@ -31,6 +32,8 @@ interface WorldStageProps {
   selectedRegionId?: string | null;
   units?: UnitTokenView[];
   projectiles?: BattleProjectileView[];
+  /** Follow pose for a directly controlled unit, if any. */
+  directCamera?: DirectCameraView | null;
   onUnitClick?: (unitId: string | null) => void;
   onRegionClick?: (regionId: string, countryId: string | null) => void;
   battleFocus?: { lon: number; lat: number; nonce: number } | null;
@@ -55,6 +58,7 @@ export function WorldStage({
   selectedRegionId = null,
   units = [],
   projectiles = [],
+  directCamera = null,
   onUnitClick,
   onRegionClick,
   battleFocus = null,
@@ -66,7 +70,12 @@ export function WorldStage({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const labelRefs = useRef(new Map<string, HTMLDivElement>());
   const rendererRef = useRef<GlobeRenderer | null>(null);
+  const directCameraRef = useRef<DirectCameraView | null>(directCamera);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+
+  useEffect(() => {
+    directCameraRef.current = directCamera;
+  }, [directCamera]);
 
   const selectedCountryId = useAppStore((state) => state.selectedCountryId);
   const hoveredCountryId = useAppStore((state) => state.hoveredCountryId);
@@ -171,6 +180,16 @@ export function WorldStage({
     if (status !== 'ready') return;
     rendererRef.current?.rig.setAutoRotate(autoRotate);
   }, [autoRotate, status]);
+
+  // The follow pose is pushed every frame from a ref so a 20 Hz snapshot still
+  // yields a continuous camera rather than a visible 20 Hz step.
+  useEffect(() => {
+    if (status !== 'ready') return;
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    const unsubscribe = renderer.onFrame(() => renderer.setDirectCamera(directCameraRef.current));
+    return () => unsubscribe();
+  }, [status]);
 
   // Pointer interaction: rotate, pan, zoom, hover and select.
   useEffect(() => {

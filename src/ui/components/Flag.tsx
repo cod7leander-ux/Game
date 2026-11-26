@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { hashString } from '../../core/math';
+import { flagDesignFor } from '../../data/flagPalette';
 
 /**
  * Procedural national flag.
@@ -8,17 +8,6 @@ import { hashString } from '../../core/math';
  * third-party flag assets and every nation still has a distinct, stable emblem.
  * Real reference flags can later replace this component without touching UI.
  */
-const PALETTES = [
-  ['#c8442f', '#f2e9d8', '#1f3b63'],
-  ['#1f5d4a', '#f0d27a', '#111a22'],
-  ['#28527a', '#e9e2cf', '#b23a35'],
-  ['#7a2d3a', '#e6d3a3', '#2c3e50'],
-  ['#e0a33a', '#16202a', '#3f7d63'],
-  ['#3b4a6b', '#dcdcd6', '#a9373a'],
-  ['#5c3b6e', '#e8c07d', '#22303c'],
-  ['#0f6b6b', '#eef0e6', '#c1533d'],
-];
-
 export interface FlagProps {
   iso2: string | null;
   seed?: string;
@@ -29,15 +18,8 @@ export interface FlagProps {
 
 export function Flag({ iso2, seed, size = 26, className, title }: FlagProps) {
   const design = useMemo(() => {
-    const key = `${iso2 ?? 'xx'}-${seed ?? ''}`;
-    const hash = hashString(key);
-    const palette = PALETTES[hash % PALETTES.length];
-    const layout = (hash >>> 3) % 5;
-    const emblem = (hash >>> 7) % 4;
-    const c1 = palette[0];
-    const c2 = palette[1];
-    const c3 = palette[2];
-    return { c1, c2, c3, layout, emblem };
+    const { colors, layout, emblem } = flagDesignFor(iso2, seed ?? '');
+    return { c1: colors[0], c2: colors[1], c3: colors[2], layout, emblem };
   }, [iso2, seed]);
 
   const width = size * 1.5;
