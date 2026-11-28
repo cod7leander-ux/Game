@@ -12,7 +12,6 @@ import {
   LineSegments,
   Mesh,
   MeshBasicMaterial,
-  MeshPhongMaterial,
   MeshStandardMaterial,
   PerspectiveCamera,
   Points,
@@ -80,7 +79,10 @@ export class GlobeRenderer {
   private readonly surfaceMaterial: MeshStandardMaterial;
   private readonly baseBorders: LineSegments;
   private readonly highlightGroup = new Group();
-  private readonly ocean: Mesh;
+  private readonly highlightCache = new Map<string, BufferGeometry>();
+  private readonly oceanMaterial: ShaderMaterial;
+  private readonly cloudMaterial: ShaderMaterial;
+  private readonly clouds: Mesh;
   private readonly atmosphere: ShaderMaterial;
   private readonly stars: Points;
   private readonly armyMarkers = new ArmyMarkers();
@@ -129,7 +131,6 @@ export class GlobeRenderer {
     this.surfaceMesh = new Mesh(this.geometry.surface, this.surfaceMaterial);
     this.surfaceMesh.frustumCulled = false;
     this.scene.add(this.surfaceMesh);
-    this.detailLayer.bindSurface(this.surfaceMesh);
     this.baseLayer.bindSurface(this.surfaceMesh);
 
     this.baseBorders = new LineSegments(
@@ -145,17 +146,139 @@ export class GlobeRenderer {
     this.scene.add(this.baseBorders);
     this.scene.add(this.highlightGroup);
 
-    this.ocean = new Mesh(
-      new SphereGeometry(R * 0.985, 96, 64),
-      new MeshPhongMaterial({
-        color: PALETTE.ocean,
-        specular: PALETTE.oceanSpecular,
-        shininess: 20,
-        emissive: new Color('#050f19'),
-        emissiveIntensity: 0.55,
-      }),
-    );
-    this.scene.add(this.ocean);
+    this.oceanMaterial = new ShaderMaterial({
+      uniforms: {
+        uDeep: { value: new Color('#04121f') },
+        uShallow: { value: new Color('#1d4c6b') },
+        uSun: { value: new Vector3(3.2, 1.4, 2.4).normalize() },
+        uTime: { value: 0 },
+      },
+      vertexShader: /* glsl */ `
+        varying vec3 vWorldPosition;
+        varying vec3 vWorldNormal;
+        void main() {
+          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+          vWorldPosition = worldPosition.xyz;
+          vWorldNormal = normalize(mat3(modelMatrix) * normal);
+          gl_Position = projectionMatrix * viewMatrix * worldPosition;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform vec3 uDeep;
+        uniform vec3 uShallow;
+        uniform vec3 uSun;
+        uniform float uTime;
+        varying vec3 vWorldPosition;
+        varying vec3 vWorldNormal;
+        float seaHash(vec3 p) {
+          p = fract(p * 0.3183099 + vec3(0.11, 0.17, 0.23));
+          p *= 17.0;
+          return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+        }
+        float seaNoise(vec3 x) {
+          vec3 i = floor(x);
+          vec3 f = fract(x);
+          f = f * f * (3.0 - 2.0 * f);
+          return mix(
+            mix(mix(seaHash(i), seaHash(i + vec3(1.0, 0.0, 0.0)), f.x),
+                mix(seaHash(i + vec3(0.0, 1.0, 0.0)), seaHash(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),
+            mix(mix(seaHash(i + vec3(0.0, 0.0, 1.0)), seaHash(i + vec3(1.0, 0.0, 1.0)), f.x),
+                mix(seaHash(i + vec3(0.0, 1.0, 1.0)), seaHash(i + vec3(1.0, 1.0, 1.0)), f.x), f.y),
+            f.z);
+        }
+        void main() {
+          vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+          vec3 normal = normalize(vWorldNormal);
+          vec3 dir = normalize(vWorldPosition);
+          // Two octaves of slow swell: enough to break the mirror, cheap enough
+          // to run on every ocean fragment.
+          float swell = seaNoise(dir * 70.0 + vec3(uTime * 0.05)) - 0.5;
+          float chop = seaNoise(dir * 190.0 - vec3(uTime * 0.08)) - 0.5;
+          normal = normalize(normal + swell * 0.045 + chop * 0.02);
+          vec3 sunDir = normalize(uSun);
+          float fresnel = pow(1.0 - clamp(dot(normal, viewDir), 0.0, 1.0), 3.0);
+          float sunAmount = clamp(dot(normal, sunDir), 0.0, 1.0);
+          vec3 halfVec = normalize(sunDir + viewDir);
+          float specular = pow(max(dot(normal, halfVec), 0.0), 110.0);
+          vec3 color = mix(uDeep, uShallow, clamp(fresnel * 0.85 + sunAmount * 0.22, 0.0, 1.0));
+          color += vec3(1.0, 0.91, 0.76) * specular * 1.15;
+          gl_FragColor = vec4(color, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `,
+    });
+    const ocean = new Mesh(new SphereGeometry(R * 0.985, 96, 64), this.oceanMaterial);
+    this.scene.add(ocean);
+
+    // A single procedural cloud shell. Procedural rather than a texture keeps
+    // the Earth texture-free and seamless, and it fades out long before city
+    // zoom so it never hides streets or airfields.
+    this.cloudMaterial = new ShaderMaterial({
+      uniforms: {
+        uOpacity: { value: 0.85 },
+        uTime: { value: 0 },
+      },
+      vertexShader: /* glsl */ `
+        varying vec3 vWorldPosition;
+        varying vec3 vWorldNormal;
+        void main() {
+          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+          vWorldPosition = worldPosition.xyz;
+          vWorldNormal = normalize(mat3(modelMatrix) * normal);
+          gl_Position = projectionMatrix * viewMatrix * worldPosition;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform float uOpacity;
+        uniform float uTime;
+        varying vec3 vWorldPosition;
+        varying vec3 vWorldNormal;
+        float cloudHash(vec3 p) {
+          p = fract(p * 0.3183099 + vec3(0.31, 0.71, 0.19));
+          p *= 17.0;
+          return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+        }
+        float cloudNoise(vec3 x) {
+          vec3 i = floor(x);
+          vec3 f = fract(x);
+          f = f * f * (3.0 - 2.0 * f);
+          return mix(
+            mix(mix(cloudHash(i), cloudHash(i + vec3(1.0, 0.0, 0.0)), f.x),
+                mix(cloudHash(i + vec3(0.0, 1.0, 0.0)), cloudHash(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),
+            mix(mix(cloudHash(i + vec3(0.0, 0.0, 1.0)), cloudHash(i + vec3(1.0, 0.0, 1.0)), f.x),
+                mix(cloudHash(i + vec3(0.0, 1.0, 1.0)), cloudHash(i + vec3(1.0, 1.0, 1.0)), f.x), f.y),
+            f.z);
+        }
+        float cloudFbm(vec3 p) {
+          float value = 0.0;
+          float amplitude = 0.5;
+          for (int i = 0; i < 4; i++) {
+            value += amplitude * cloudNoise(p);
+            p *= 2.05;
+            amplitude *= 0.5;
+          }
+          return value;
+        }
+        void main() {
+          vec3 dir = normalize(vWorldPosition);
+          float drift = uTime * 0.0035;
+          float base = cloudFbm(dir * 3.4 + vec3(drift, 0.0, drift * 0.6));
+          float detail = cloudFbm(dir * 9.2 - vec3(drift * 1.6, 0.0, 0.0));
+          float cover = smoothstep(0.47, 0.75, base * 0.72 + detail * 0.4);
+          cover *= smoothstep(0.16, 0.5, cloudFbm(dir * 1.8 + vec3(0.0, drift, 0.0)));
+          float rim = 1.0 - abs(dot(normalize(vWorldNormal), normalize(cameraPosition - vWorldPosition)));
+          gl_FragColor = vec4(vec3(0.94, 0.96, 1.0), cover * uOpacity * (0.5 + rim * 0.5));
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+    });
+    this.clouds = new Mesh(new SphereGeometry(R * 1.021, 96, 64), this.cloudMaterial);
+    this.clouds.frustumCulled = false;
+    this.scene.add(this.clouds);
 
     this.atmosphere = new ShaderMaterial({
       uniforms: { uColor: { value: PALETTE.atmosphere } },
@@ -193,6 +316,12 @@ export class GlobeRenderer {
     const sun = new DirectionalLight(0xfff0d6, 1.78);
     sun.position.set(R * 5.5, R * 2.4, R * 3.8);
     this.scene.add(sun);
+    this.oceanMaterial.uniforms.uSun.value.copy(sun.position).normalize();
+    // Cool bounce fill so the night side keeps its coastlines and borders
+    // readable instead of going flat black.
+    const fill = new DirectionalLight(0x5d86c4, 0.22);
+    fill.position.set(-R * 4.5, -R * 1.2, -R * 3.2);
+    this.scene.add(fill);
 
     this.stars = this.createStars(QUALITY[this.quality].starCount);
     this.scene.add(this.stars);
@@ -265,7 +394,23 @@ export class GlobeRenderer {
           /* glsl */ `#include <color_fragment>
           float relief = terraFbm(vTerraPos * 2.1) * 0.62 + terraFbm(vTerraPos * 6.7) * 0.38;
           float detail = mix(0.5, relief, uDetail);
-          diffuseColor.rgb *= mix(0.9, 1.16, detail);`,
+          diffuseColor.rgb *= mix(0.9, 1.16, detail);
+          // Rock and snow are baked into the vertex colours from the terrain
+          // field; deriving them again from the radius would whiten every
+          // country whose national plateau sits high.
+          // Fine grain: at street range the ground must not read as flat
+          // vertex paint between polygons.
+          float grain = terraFbm(vTerraPos * 130.0 + 11.0);
+          diffuseColor.rgb *= 1.0 + (grain - 0.5) * 0.36 * uDetail;`,
+        )
+        .replace(
+          '#include <roughnessmap_fragment>',
+          /* glsl */ `#include <roughnessmap_fragment>
+          roughnessFactor = clamp(
+            roughnessFactor + (terraFbm(vTerraPos * 38.0) - 0.5) * 0.45 * uDetail,
+            0.35,
+            1.0
+          );`,
         );
     };
     material.customProgramCacheKey = () => surfaceShaderKey;
@@ -371,6 +516,9 @@ export class GlobeRenderer {
   /** City view: close enough for buildings, landmarks and streets to read. */
   frameCity(lon: number, lat: number): void {
     this.rig.flyTo(lon, lat, 0.0135);
+    // A cinematic approach angle: looking down the skyline rather than straight
+    // at the rooftops makes the city read as a place.
+    this.rig.setTilt(0.62);
   }
 
   /** Airbase / port view: sits just above the installation. */
@@ -402,7 +550,13 @@ export class GlobeRenderer {
     }
 
     const addOverlay = (countryId: string, color: Color, opacity: number, outlineOpacity: number) => {
-      const geometry = this.geometry.highlights.get(countryId);
+      const geometry =
+        this.highlightCache.get(countryId) ??
+        (() => {
+          const built = this.geometry.highlight(countryId);
+          if (built) this.highlightCache.set(countryId, built);
+          return built;
+        })();
       const outline = this.geometry.outlines.get(countryId);
       if (!geometry) return;
       const mesh = new Mesh(
@@ -416,8 +570,9 @@ export class GlobeRenderer {
         }),
       );
       mesh.renderOrder = 2;
-      // Lift the additive sheen just clear of the displaced terrain.
-      mesh.scale.setScalar(1.0009);
+      // Lift the additive sheen clear of the displaced terrain, including the
+      // refined mountain ridges that reach the highest relief.
+      mesh.scale.setScalar(1.0017);
       this.highlightGroup.add(mesh);
       if (outline) {
         const lines = new LineSegments(
@@ -436,10 +591,10 @@ export class GlobeRenderer {
     };
 
     if (this.hoveredId && this.hoveredId !== this.selectedId) {
-      addOverlay(this.hoveredId, PALETTE.hover, 0.16, 0.55);
+      addOverlay(this.hoveredId, PALETTE.hover, 0.1, 0.5);
     }
     if (this.selectedId) {
-      addOverlay(this.selectedId, PALETTE.selection, 0.24, 0.95);
+      addOverlay(this.selectedId, PALETTE.selection, 0.1, 0.95);
     }
   }
 
@@ -598,9 +753,21 @@ export class GlobeRenderer {
       this.regionLayer.object.visible = altitude >= 0.03;
       this.detailLayer.update(altitude, this.rig.isDirect);
       this.baseLayer.update(altitude);
-      this.armyMarkers.update(clamp(altitude * 1.15, 0.5, 2.1));
-      this.ocean.lookAt(this.rig.camera.position);
+      this.armyMarkers.update(clamp(altitude * 4.5, 0.35, 2.0));
+      // Strategic army tokens belong to the country/region scale; at city
+      // zoom they would be larger than the districts they stand in.
+      this.armyMarkers.object.visible = altitude >= 0.03;
+      this.unitLayer.object.visible = altitude >= 0.022 || this.rig.isDirect;
       this.stars.rotation.y += deltaSeconds * 0.0025;
+
+      this.oceanMaterial.uniforms.uTime.value = time * 0.001;
+      this.cloudMaterial.uniforms.uTime.value = time * 0.001;
+      this.clouds.rotation.y += deltaSeconds * 0.0035;
+      // Clouds are a globe-scale feature; they dissolve before the camera is
+      // close enough for them to veil a city or an airfield.
+      const cloudOpacity = clamp((altitude - 0.42) / 0.6, 0, 1) * 0.85;
+      this.cloudMaterial.uniforms.uOpacity.value = cloudOpacity;
+      this.clouds.visible = cloudOpacity > 0.01;
 
       this.renderer.render(this.scene, this.rig.camera);
       for (const callback of this.frameCallbacks) callback();
@@ -628,8 +795,12 @@ export class GlobeRenderer {
     this.frameCallbacks.clear();
     this.geometry.surface.dispose();
     this.geometry.borders.dispose();
-    for (const geometry of this.geometry.highlights.values()) geometry.dispose();
+    for (const geometry of this.highlightCache.values()) geometry.dispose();
+    this.highlightCache.clear();
     for (const geometry of this.geometry.outlines.values()) geometry.dispose();
+    this.oceanMaterial.dispose();
+    this.cloudMaterial.dispose();
+    this.clouds.geometry.dispose();
     this.surfaceMaterial.dispose();
     this.armyMarkers.dispose();
     this.regionLayer.dispose();

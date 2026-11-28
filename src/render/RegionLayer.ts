@@ -12,7 +12,7 @@ import {
 import { GAME } from '../core/config';
 import { ALL_REGION_GEO, PROVINCE_BORDER_SEGMENTS, cellsOfCountry } from '../geo';
 import type { MapLayerId, MapRegionView } from '../game/types';
-import { surfaceReliefAt } from './globeGeography';
+import { subdivideTriangle, surfaceReliefAt } from './globeGeography';
 
 /**
  * Batched province territory layer.
@@ -27,8 +27,8 @@ import { surfaceReliefAt } from './globeGeography';
 const R = GAME.globeRadius;
 /** Overlays hug the displaced terrain: a fixed shell would float above it up close. */
 const FILL_OFFSET = 0.0012;
-const BORDER_OFFSET = 0.0024;
-const SELECTION_OFFSET = 0.0036;
+const BORDER_OFFSET = 0.0026;
+const SELECTION_OFFSET = 0.0038;
 const DEG = Math.PI / 180;
 
 const REGION_OWNER: Record<string, string> = Object.fromEntries(
@@ -108,19 +108,22 @@ export class RegionLayer {
       for (const cell of cellsOfCountry(countryId)) {
         const range = this.ranges.get(cell.regionId);
         const start = range ? range.start : positions.length / 3;
+        // The same adaptive tessellation as the rendered surface, so the
+        // province fill hugs every refined ridge instead of cutting through it.
+        const refined = subdivideTriangle(cell.triangle);
         let triangles = this.cellTriangles.get(cell.regionId);
         if (!triangles) {
           triangles = new Float32Array(0);
           this.cellTriangles.set(cell.regionId, triangles);
         }
-        const next = new Float32Array(triangles.length + 9);
+        const next = new Float32Array(triangles.length + refined.length);
         next.set(triangles);
-        next.set(cell.triangle, triangles.length);
+        next.set(refined, triangles.length);
         this.cellTriangles.set(cell.regionId, next);
 
-        for (let corner = 0; corner < 3; corner += 1) {
-          const lon = cell.triangle[corner * 2];
-          const lat = cell.triangle[corner * 2 + 1];
+        for (let offset = 0; offset < refined.length; offset += 2) {
+          const lon = refined[offset];
+          const lat = refined[offset + 1];
           const [x, y, z] = pointToXYZ(
             lon,
             lat,
@@ -135,17 +138,23 @@ export class RegionLayer {
         });
       }
       for (const [aLon, aLat, bLon, bLat] of PROVINCE_BORDER_SEGMENTS[countryId]) {
-        const [ax, ay, az] = pointToXYZ(
+        let previous = pointToXYZ(
           aLon,
           aLat,
           R + surfaceReliefAt(countryId, aLon, aLat) + BORDER_OFFSET,
         );
-        const [bx, by, bz] = pointToXYZ(
-          bLon,
-          bLat,
-          R + surfaceReliefAt(countryId, bLon, bLat) + BORDER_OFFSET,
-        );
-        borderPositions.push(ax, ay, az, bx, by, bz);
+        for (let step = 1; step <= 3; step += 1) {
+          const t = step / 3;
+          const lon = aLon + (bLon - aLon) * t;
+          const lat = aLat + (bLat - aLat) * t;
+          const next = pointToXYZ(
+            lon,
+            lat,
+            R + surfaceReliefAt(countryId, lon, lat) + BORDER_OFFSET,
+          );
+          borderPositions.push(...previous, ...next);
+          previous = next;
+        }
       }
     }
 
@@ -170,7 +179,7 @@ export class RegionLayer {
   }
 
   setLayer(layer: MapLayerId): void {
-    this.fillMaterial.opacity = layer === 'terrain' ? 0.6 : layer === 'political' ? 0.36 : 0.52;
+    this.fillMaterial.opacity = layer === 'terrain' ? 0.42 : layer === 'political' ? 0.28 : 0.44;
     this.borderMaterial.opacity = layer === 'terrain' ? 0.18 : 0.26;
     this.borderMaterial.color.set(layer === 'political' ? '#08131f' : '#0b1a26');
   }

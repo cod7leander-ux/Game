@@ -54,10 +54,15 @@ const CAPITALS: CapitalInstance[] = COUNTRY_DEFINITIONS.map((definition) => {
 
 export class CapitalLayer {
   readonly object = new Group();
-  private readonly poleMaterial = new MeshBasicMaterial({ color: '#d8d2c4', toneMapped: false });
+  private readonly poleMaterial = new MeshBasicMaterial({
+    color: '#d8d2c4',
+    toneMapped: false,
+    transparent: true,
+  });
   private readonly flagMaterial = new MeshBasicMaterial({
     side: DoubleSide,
     toneMapped: false,
+    transparent: true,
   });
   private readonly poles: InstancedMesh;
   private readonly topBands: InstancedMesh;
@@ -139,9 +144,12 @@ export class CapitalLayer {
     this.poles.count = Math.min(limit, CAPITALS.length);
     this.topBands.count = this.poles.count;
     this.bottomBands.count = this.poles.count;
-    // At street level the landmark and blocks represent the capital; a
-    // country-scaled flag would dwarf them.
-    this.object.visible = altitude < 5.4 && altitude >= 0.03;
+    // At street level the city itself represents the capital; a country-scaled
+    // flag would dwarf the skyline, so the marker fades out before then.
+    const fade = Math.min(1, Math.max(0, (altitude - 0.052) / 0.028));
+    this.object.visible = altitude < 5.4 && fade > 0.01;
+    this.poleMaterial.opacity = fade;
+    this.flagMaterial.opacity = fade;
 
     // Markers grow with the camera so a flag stays a few pixels wide at every
     // scale instead of vanishing in the global view and dwarfing the country

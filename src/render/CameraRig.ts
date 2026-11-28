@@ -124,6 +124,11 @@ export class CameraRig {
     this.targetAltitude = clamp(altitude, CAMERA.minAltitude, CAMERA.maxAltitude);
   }
 
+  /** Focus actions set a presentation tilt (city approach, airfield view). */
+  setTilt(tilt: number): void {
+    this.targetTilt = clamp(tilt, 0.05, CAMERA.maxTilt);
+  }
+
   setAltitude(altitude: number): void {
     this.targetAltitude = clamp(altitude, CAMERA.minAltitude, CAMERA.maxAltitude);
   }

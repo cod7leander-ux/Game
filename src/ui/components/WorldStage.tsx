@@ -202,6 +202,24 @@ export function WorldStage({
     rendererRef.current?.rig.setAutoRotate(autoRotate);
   }, [autoRotate, status]);
 
+  // Publish the camera focus to the minimap a few times a second. Reading it
+  // from the rig keeps the marker tied to the actual rendered camera, including
+  // drags, zooms and flights it did not initiate.
+  useEffect(() => {
+    if (status !== 'ready') return;
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    let last = 0;
+    const unsubscribe = renderer.onFrame(() => {
+      const now = performance.now();
+      if (now - last < 180) return;
+      last = now;
+      const [lon, lat] = renderer.rig.focusLonLat;
+      useAppStore.getState().setCameraView({ lon, lat, altitude: renderer.rig.altitudeRatio });
+    });
+    return () => unsubscribe();
+  }, [status]);
+
   // The follow pose is pushed every frame from a ref so a 20 Hz snapshot still
   // yields a continuous camera rather than a visible 20 Hz step.
   useEffect(() => {

@@ -41,6 +41,7 @@ const DESERT = new Color('#b8a06a');
 const JUNGLE = new Color('#41673c');
 const STEPPE = new Color('#9a9468');
 const TUNDRA = new Color('#8f9983');
+const FOREST = new Color('#557a45');
 
 const smoothstep = (edge0: number, edge1: number, value: number): number => {
   const t = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
@@ -69,6 +70,14 @@ export const biomeTint = (countryId: string, lon: number, lat: number, out = new
 
   const tundraBand = smoothstep(62, 70, absLat) * (1 - snow);
   if (tundraBand > 0) out.lerp(TUNDRA, tundraBand * 0.4);
+
+  // Temperate moisture belts: broad, deterministic bands of greener land in
+  // the mid-latitudes, so continents are not one flat tan massif.
+  const temperate = smoothstep(18, 33, absLat) * (1 - smoothstep(50, 62, absLat));
+  const moisture =
+    0.5 + 0.5 * Math.sin(lon * 0.31 + lat * 0.47) * Math.cos(lon * 0.11 - lat * 0.29);
+  const green = temperate * moisture;
+  if (green > 0.02) out.lerp(FOREST, green * 0.3);
 
   // Low-frequency patchiness from the coordinates themselves.
   const noise =

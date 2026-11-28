@@ -129,6 +129,8 @@ interface AppState {
   cityFocus: CityFocusRequest | null;
   baseFocus: BaseFocusRequest | null;
   pointFocus: PointFocusRequest | null;
+  /** Published by the renderer so the minimap can show where the camera is. */
+  cameraView: { lon: number; lat: number; altitude: number } | null;
   pausedFromSpeed: 1 | 2 | 4 | 8;
 
   goToMenu: () => void;
@@ -154,6 +156,7 @@ interface AppState {
   focusCityCamera: (cityId: string) => void;
   focusBaseCamera: (kind: 'airport' | 'port', id: string) => void;
   focusPointCamera: (lon: number, lat: number, altitude?: number) => void;
+  setCameraView: (view: { lon: number; lat: number; altitude: number }) => void;
   setMapLayer: (layer: MapLayerId) => void;
 
   startCampaign: (countryId: string, difficulty: CampaignDifficulty) => void;
@@ -264,6 +267,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   cityFocus: null,
   baseFocus: null,
   pointFocus: null,
+  cameraView: null,
   pausedFromSpeed: 1,
 
   goToMenu: () => set({ phase: 'menu', dialog: 'none', selectedCountryId: null, hoveredCountryId: null }),
@@ -420,6 +424,21 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   focusPointCamera: (lon, lat, altitude = 0.55) =>
     set({ pointFocus: { lon, lat, altitude, nonce: Date.now() + Math.random() } }),
+
+  // The renderer calls this a few times per second; skip updates that would
+  // not move the minimap marker by at least a visible amount.
+  setCameraView: (cameraView) => {
+    const current = get().cameraView;
+    if (
+      current &&
+      Math.abs(current.lon - cameraView.lon) < 0.2 &&
+      Math.abs(current.lat - cameraView.lat) < 0.2 &&
+      Math.abs(Math.log(current.altitude / Math.max(0.0001, cameraView.altitude))) < 0.06
+    ) {
+      return;
+    }
+    set({ cameraView });
+  },
 
   setMapLayer: (mapLayer) => set({ mapLayer }),
 

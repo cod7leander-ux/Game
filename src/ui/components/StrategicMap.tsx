@@ -64,6 +64,7 @@ export function StrategicMap({
 }) {
   const { t: tr } = useI18n();
   const focusPointCamera = useAppStore((state) => state.focusPointCamera);
+  const cameraView = useAppStore((state) => state.cameraView);
   const selectRegion = useAppStore((state) => state.selectRegion);
   const selectCountry = useAppStore((state) => state.selectCountry);
   const setPanelTab = useAppStore((state) => state.setPanelTab);
@@ -140,6 +141,15 @@ export function StrategicMap({
             r={2.4}
             className="strategic-map__selection"
           />
+        )}
+        {cameraView && (
+          <g
+            className="strategic-map__camera"
+            transform={`translate(${cameraView.lon + 180} ${90 - cameraView.lat})`}
+          >
+            <circle r={Math.min(26, 3 + cameraView.altitude * 16)} className="strategic-map__view" />
+            <path d="M-2.6 0H2.6M0 -2.6V2.6" className="strategic-map__cross" />
+          </g>
         )}
         {snapshot.mapArmies.map((army) => (
           <circle

@@ -75,3 +75,21 @@
     display: none;
   }
 }
+
+/* Camera position published by the world renderer. */
+.strategic-map__camera {
+  pointer-events: none;
+}
+
+.strategic-map__view {
+  fill: none;
+  stroke: rgba(127, 216, 255, 0.45);
+  stroke-width: 0.5;
+  stroke-dasharray: 2 2;
+}
+
+.strategic-map__cross {
+  stroke: #bfe9ff;
+  stroke-width: 0.7;
+  fill: none;
+}
